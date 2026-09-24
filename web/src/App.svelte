@@ -1,16 +1,18 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Heart, BedDouble, TrendingUp, Database, RefreshCw, LogOut, Sparkles } from 'lucide-svelte'
+  import { Heart, BedDouble, TrendingUp, Database, QrCode, RefreshCw, LogOut, Sparkles } from 'lucide-svelte'
   import Login from './pages/Login.svelte'
   import Summary from './pages/Summary.svelte'
   import Sleep from './pages/Sleep.svelte'
   import Trends from './pages/Trends.svelte'
   import Data from './pages/Data.svelte'
   import Ask from './pages/Ask.svelte'
-  import { hub, check, load, logout } from './lib/store.svelte'
+  import Connect from './pages/Connect.svelte'
+  import { hub, check, load, logout, adoptHashToken } from './lib/store.svelte'
   import { ago } from './lib/fmt'
 
-  // hash routes: #/, #/sleep, #/trends/<metric>, #/data
+  // hash routes: #/, #/sleep, #/trends/<metric>, #/data, #/connect
+  adoptHashToken()
   let route = $state(location.hash.replace(/^#\/?/, ''))
   const go = (r: string) => { location.hash = '#/' + r }
   onMount(() => {
@@ -29,6 +31,7 @@
     { id: 'trends', title: 'Trends', icon: TrendingUp },
     { id: 'ask', title: 'Ask', icon: Sparkles },
     { id: 'data', title: 'Data', icon: Database },
+    { id: 'connect', title: 'Connect', icon: QrCode },
   ]
 </script>
 
@@ -53,13 +56,14 @@
       </div>
     </aside>
     <main class="content">
-      {#if hub.error && !hub.summary}
+      {#if tab === 'connect'}<Connect />
+      {:else if hub.error && !hub.summary}
         <div class="error">{hub.error}</div>
       {:else if !hub.summary && hub.loading}
         <div class="muted">Loading your data…</div>
       {:else if !hub.summary}
         <div class="large-title">Open Oura</div>
-        <div class="body">The hub is up, but no summary has been pushed yet. Open the app on your phone, go to Settings → Health hub, and tap Send Now.</div>
+        <div class="body">The hub is up, but no summary has been pushed yet. Open <a href="#/connect">Connect</a> and scan the code with your iPhone.</div>
       {:else if tab === 'sleep'}<Sleep />
       {:else if tab === 'trends'}<Trends metric={route.split('/')[1] || 'hrv_ms'} />
       {:else if tab === 'ask'}<Ask />

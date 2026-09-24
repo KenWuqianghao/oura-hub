@@ -12,15 +12,25 @@ samples here. Agents (Grok Bot, Claude Code, any MCP client) read them over MCP.
 - `GET /export/events`: the ring replica back out, in pages.
 - `GET /health`: liveness; details with the token.
 - `GET /`: the web UI (Apple Health style, like the iOS app): Summary, Sleep, Trends,
-  Ask, Data. It signs in with the same token and reads `/api/summary` and `/api/tool/<name>`.
+  Ask, Data, Connect. It signs in with the same token and reads `/api/summary` and
+  `/api/tool/<name>`. **Connect** shows a QR code that links the iPhone app in one scan.
 - `POST /api/agent/ask`: the built-in agent. Runs your own Claude Code, Codex, or
   Cursor CLI on the hub with the health tools attached; streams the answer.
 
 Data lives in two SQLite files: `hub.db` (summary snapshots, Apple Health samples) and
 `oura.db` (the ring replica, `oura-store` schema).
 
-Setup, deployment (Docker, podman, Steam Deck, Tailscale Funnel), the tools, and the
-agent prompt: [docs/health-hub.md](docs/health-hub.md).
+## Install
+
+On the server, with Docker or podman and Tailscale signed in:
+
+```bash
+./deploy/install.sh            # add --public for a Tailscale Funnel https:// address
+```
+
+It makes the token, builds, runs the hub as a service, and prints a sign-in link that
+opens the Connect page. Setup details, other deployments (Steam Deck, Ubuntu, Caddy),
+the tools, and the agent prompt: [docs/health-hub.md](docs/health-hub.md).
 
 ## Build
 

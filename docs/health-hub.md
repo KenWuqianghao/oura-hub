@@ -24,7 +24,35 @@ link with the client that syncs it.
 | iOS `HealthReader.swift` | open_health `apps/ios/OuraApp` | Reads Apple Health samples with anchored queries and pushes the changes |
 | `oura push` | open_health `crates/oura-cli` | Builds the summary on the Mac and pushes it |
 
-## Run the hub
+## Quick start: one command
+
+On the server (a Linux box, a Steam Deck, or a Mac), with Docker or podman and
+Tailscale installed and signed in:
+
+```bash
+git clone https://github.com/KenWuqianghao/oura-hub.git && cd oura-hub && ./deploy/install.sh
+```
+
+The script makes a token once (`~/.config/oura-hub.env`), builds the image, runs it
+as a service that comes back after a reboot, publishes it on loopback and on the
+Tailscale address, and prints three lines:
+
+- **Web app**: `http://<server>.<tailnet>.ts.net:8787`
+- **Sign in**: the same address with `#token=<token>`. Open it once in a browser; it
+  signs in and opens the **Connect** page.
+- **MCP address**: `…/mcp/<token>` for an agent.
+
+Add `--public` for a public `https://<server>.<tailnet>.ts.net` address through
+Tailscale Funnel (a hosted agent needs it). Run the script again to update; it keeps
+the token and the data (`~/oura-hub-data`).
+
+**Connect page.** It shows a QR code with `openoura://hub?url=<hub>&token=<token>`.
+Scan it with the iPhone Camera, tap **Open in Open Oura**, then **Connect**. The app
+asks first, because any web page can make such a link. The page also gives the
+Claude Code command and the `mcpServers` JSON with copy buttons. The token is hidden
+until you tap **Show token**.
+
+## Run the hub by hand
 
 Make a token. Keep it secret. The hub refuses tokens shorter than 16 characters.
 
@@ -183,8 +211,9 @@ hub.example.com {
 
 ## Push from the iPhone
 
-Open Settings in the app. Under **Health hub** turn on **Send data to my hub**, enter
-the hub URL and the token. After every sync the app sends:
+Scan the QR code on the hub's **Connect** page with the Camera, then tap **Connect**
+in the app. To do it by hand: Settings → **Health hub**, turn on **Send data to my
+hub**, enter the hub URL and the token. After every sync the app sends:
 
 - the summary, with the on-device model results folded in (sleep stages, cardio
   age, illness signs), and

@@ -37,6 +37,16 @@ export function logout() {
   hub.watch = null
 }
 
+/** The install script prints `<hub>/#token=<token>`: take the token, open Connect,
+ *  and keep the token out of the address bar. Runs before the first route is read. */
+export function adoptHashToken() {
+  const m = location.hash.match(/^#token=([^&]+)/)
+  if (!m) return
+  setToken(decodeURIComponent(m[1]))
+  hub.token = getToken()
+  history.replaceState(null, '', location.pathname + '#/connect')
+}
+
 export async function check() {
   hub.checking = true
   if (hub.token) {
