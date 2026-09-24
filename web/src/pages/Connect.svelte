@@ -1,7 +1,6 @@
 <script lang="ts">
   import { renderSVG } from 'uqr'
-  import { Smartphone, Bot, Terminal, Copy, Check, Eye, EyeOff } from 'lucide-svelte'
-  import CardHeader from '../components/CardHeader.svelte'
+  import { Copy, Check, Eye, EyeOff } from 'lucide-svelte'
   import { hub } from '../lib/store.svelte'
 
   // The address the phone and the agent use. It is this page's address unless the
@@ -43,63 +42,62 @@
 
 {#snippet field(id: string, label: string, text: string)}
   <div class="field">
-    <div class="caption">{label}</div>
+    <div class="small sub">{label}</div>
     <div class="code-row">
-      <pre>{masked(text)}</pre>
-      <button class="icon-btn" title="Copy" onclick={() => copy(id, text)}>
+      <pre class="num">{masked(text)}</pre>
+      <button class="btn quiet" title="Copy" onclick={() => copy(id, text)}>
         {#if copied === id}<Check size={16} />{:else}<Copy size={16} />{/if}
       </button>
     </div>
   </div>
 {/snippet}
 
-<div class="page">
-  <div class="large-title">Connect</div>
-  <div class="subtitle">Link your iPhone and your AI agent to this hub</div>
+<div class="wrap">
+  <div class="section"><h1>Connect</h1><p class="sub">Link your iPhone and your AI agent to this hub.</p></div>
 
-  <div class="stack" style="gap: 8px; margin-bottom: 14px">
-    <div class="caption">Hub address that your phone and your agent use</div>
+  <div class="section stack" style="gap: 8px">
+    <div class="eyebrow">Hub address that your phone and your agent use</div>
     <input class="input" bind:value={base} spellcheck="false" autocomplete="off" />
-    {#if local}<div class="error">This is the server's own address. Enter the address your phone uses, for example <code>https://myserver.tailnet.ts.net</code>.</div>{/if}
-    {#if plainHttp}<div class="error">The iPhone accepts plain <code>http://</code> only for Tailscale names (<code>*.ts.net</code>). Use an <code>https://</code> address.</div>{/if}
+    {#if local}<div class="error">This is the server's own address. Enter the address your phone uses, for example <span class="num">https://myserver.tailnet.ts.net</span>.</div>{/if}
+    {#if plainHttp}<div class="error">The iPhone accepts plain <span class="num">http://</span> only for Tailscale names (<span class="num">*.ts.net</span>). Use an <span class="num">https://</span> address.</div>{/if}
   </div>
 
-  <div class="grid">
-    <div class="card span5">
-      <CardHeader title="iPhone" icon={Smartphone} tint="var(--readiness)" />
+  <div class="section cols cols-1-2">
+    <div>
+      <div class="eyebrow">iPhone</div>
       {#if qr}<div class="qr">{@html qr}</div>{/if}
       <ol class="steps">
         <li>Install Open Oura on the iPhone and pair your ring.</li>
         <li>Open the Camera app and point it at this code.</li>
         <li>Tap <b>Open in Open Oura</b>, then <b>Connect</b>.</li>
       </ol>
-      <div class="caption">The app then sends the ring data after every sync. Turn on <b>Include Apple Health data</b> in Settings → Health hub to add the Apple Watch.</div>
+      <p class="small sub">The app then sends the ring data after every sync. Turn on <b>Include Apple Health data</b> in Settings → Health hub to add the Apple Watch.</p>
     </div>
-
-    <div class="card span7">
-      <CardHeader title="AI agent (MCP)" icon={Bot} tint="var(--accent)" />
-      <button class="reveal" onclick={() => reveal = !reveal}>
-        {#if reveal}<EyeOff size={14} /> Hide token{:else}<Eye size={14} /> Show token{/if}
-      </button>
+    <div class="stack">
+      <div class="eyebrow">AI agent (MCP)
+        <span class="spacer"></span>
+        <button class="btn quiet" onclick={() => reveal = !reveal}>
+          {#if reveal}<EyeOff size={14} /> Hide token{:else}<Eye size={14} /> Show token{/if}
+        </button>
+      </div>
       {@render field('mcp', 'MCP address (Streamable HTTP, the token is in the path)', mcp)}
       {@render field('claude', 'Claude Code', claudeCmd)}
       {@render field('json', 'Cursor, Grok Bot, and other clients (mcpServers)', json)}
-      <div class="caption">Claude Desktop and claude.ai: Settings → Connectors → Add custom connector, then paste the MCP address. A hosted agent needs a public <code>https://</code> address (Tailscale Funnel). Ask it: “Call get_status_now and plan my day.”</div>
+      <p class="small sub">Claude Desktop and claude.ai: Settings → Connectors → Add custom connector, then paste the MCP address. A hosted agent needs a public <span class="num">https://</span> address (Tailscale Funnel). Ask it: “Call get_status_now and plan my day.”</p>
     </div>
+  </div>
 
-    <div class="card span12">
-      <CardHeader title="Mac (command line)" icon={Terminal} tint="var(--device)" />
-      {@render field('push', 'Push a summary from a Mac that syncs the ring with the oura CLI', pushCmd)}
-    </div>
+  <div class="section">
+    <div class="eyebrow">Mac (command line)</div>
+    {@render field('push', 'Push a summary from a Mac that syncs the ring with the oura CLI', pushCmd)}
   </div>
 </div>
 
 <style>
-  .qr { background: #fff; border-radius: 16px; padding: 12px; align-self: center; width: min(260px, 100%); }
+  .qr { background: #fff; border-radius: 10px; padding: 12px; width: min(240px, 100%); margin-bottom: 16px; }
   .qr :global(svg) { display: block; width: 100%; height: auto; }
-  .steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 15px; }
-  .field { display: flex; flex-direction: column; gap: 4px; }
+  .steps { margin: 0 0 12px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
+  .field { display: flex; flex-direction: column; gap: 6px; }
   .code-row { display: flex; gap: 8px; align-items: flex-start; }
-  .code-row pre { flex: 1; margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--fill); font-size: 13px; white-space: pre-wrap; word-break: break-all; min-width: 0; }
-  .reveal { align-self: flex-start; display: inline-flex; gap: 6px; align-items: center; border: 0; background: var(--fill); color: var(--text); border-radius: 999px; padding: 5px 10px; font-size: 13px; cursor: pointer; }
+  .code-row pre { flex: 1; margin: 0; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--rule); background: var(--surface); font-size: 13px; white-space: pre-wrap; word-break: break-all; min-width: 0; }
 </style>
