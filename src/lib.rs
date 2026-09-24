@@ -103,11 +103,13 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
         },
         Tool {
             name: "get_health_samples",
-            description: "Raw Apple Health samples of one kind, newest first. Kinds: heart_rate, resting_heart_rate, hrv_sdnn, walking_heart_rate_average, vo2_max, step_count, active_energy, basal_energy, exercise_time, stand_time, stand_hour, distance_walking_running, respiratory_rate, oxygen_saturation, wrist_temperature, sleep_analysis, workout.",
+            description: "Raw Apple Health samples of one kind, newest first. Kinds: heart_rate, resting_heart_rate, hrv_sdnn, walking_heart_rate_average, vo2_max, step_count, active_energy, basal_energy, exercise_time, stand_time, stand_hour, distance_walking_running, respiratory_rate, oxygen_saturation, wrist_temperature, sleep_analysis, workout. Either `days` back from now, or an explicit `start_unix`/`end_unix` window.",
             input_schema: json!({ "type": "object", "properties": {
                 "kind": { "type": "string", "description": "Which kind to return." },
                 "days": { "type": "integer", "minimum": 1, "maximum": 365, "default": 7 },
-                "limit": { "type": "integer", "minimum": 1, "maximum": 5000, "default": 500 }
+                "start_unix": { "type": "number", "description": "Window start (unix seconds); overrides days." },
+                "end_unix": { "type": "number", "description": "Window end (unix seconds); default now." },
+                "limit": { "type": "integer", "minimum": 1, "maximum": 20000, "default": 500 }
             }, "required": ["kind"], "additionalProperties": false }),
         },
         Tool {
@@ -143,9 +145,11 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
         }
         if name == "get_health_samples" {
             let kind = args["kind"].as_str().ok_or("kind is required")?;
-            let limit = args["limit"].as_u64().unwrap_or(500).clamp(1, 5000) as usize;
+            let limit = args["limit"].as_u64().unwrap_or(500).clamp(1, 20000) as usize;
+            let start = args["start_unix"].as_f64().unwrap_or(now as f64 - days(7) as f64 * 86400.0);
+            let end = args["end_unix"].as_f64();
             let rows = store_for_handler
-                .health_rows(Some(kind), now as f64 - days(7) as f64 * 86400.0, limit)
+                .health_rows_between(Some(kind), start, end, limit)
                 .map_err(|e| format!("store error: {e}"))?;
             return Ok(json!({ "kind": kind, "count": rows.len(), "samples": rows }));
         }

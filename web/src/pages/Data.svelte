@@ -1,58 +1,55 @@
 <script lang="ts">
-  import { Database, CircleDot, Watch as WatchIcon, Server } from 'lucide-svelte'
-  import CardHeader from '../components/CardHeader.svelte'
-  import StatRow from '../components/StatRow.svelte'
-  import { hub } from '../lib/store.svelte'
+  import { hub, logout } from '../lib/store.svelte'
   import * as F from '../lib/fmt'
-
   const info = $derived(hub.info)
   const s = $derived(hub.summary)
-  const kindName = (k: string) => k.replace(/_/g, ' ')
   const total = $derived((info?.health ?? []).reduce((a, k) => a + k.count, 0))
 </script>
 
-<div class="page">
-  <div class="large-title">Data</div>
-  <div class="subtitle">What the hub holds, and how fresh it is</div>
-  <div class="grid">
-    <div class="card span4">
-      <CardHeader title="Summary snapshots" icon={Database} tint="var(--readiness)" />
-      <StatRow label="Snapshots kept" value={`${info?.snapshots ?? '—'}`} />
-      <StatRow label="Latest received" value={hub.receivedAt ? `${F.dateTime(hub.receivedAt)} (${F.ago(hub.receivedAt)})` : '—'} />
-      <StatRow label="Built by" value={s?.pushed_by ? `${s.pushed_by.client} ${s.pushed_by.version}` : '—'} />
-      <StatRow label="Nights in summary" value={`${s?.nights.length ?? '—'}`} />
-      <StatRow label="Activity days" value={`${Object.keys(s?.activity_daily ?? {}).length}`} />
-      <div class="caption">The phone builds the summary after every ring sync and pushes it when its content changed. The hub keeps the last 500.</div>
+<div class="wrap">
+  <div class="section"><h1>Data</h1><p class="sub">What the hub holds, and how fresh it is.</p></div>
+  <div class="section cols cols-3">
+    <div>
+      <div class="eyebrow">Summary snapshots</div>
+      <div class="kv">
+        <div class="k">Snapshots kept</div><div class="v">{info?.snapshots ?? '—'}</div>
+        <div class="k">Latest received</div><div class="v">{hub.receivedAt ? `${F.dateTime(hub.receivedAt)} · ${F.ago(hub.receivedAt)}` : '—'}</div>
+        <div class="k">Built by</div><div class="v">{s?.pushed_by ? `${s.pushed_by.client} ${s.pushed_by.version}` : '—'}</div>
+        <div class="k">Nights in summary</div><div class="v">{s?.nights.length ?? '—'}</div>
+        <div class="k">Activity days</div><div class="v">{Object.keys(s?.activity_daily ?? {}).length}</div>
+      </div>
+      <p class="small sub">The phone builds the summary after every ring sync and pushes it when its content changed. The hub keeps the last 500.</p>
     </div>
-    <div class="card span4">
-      <CardHeader title="Ring replica" icon={CircleDot} tint="var(--device)" />
-      <StatRow label="Serial" value={info?.ring?.serials.join(', ') || '—'} />
-      <StatRow label="Raw events" value={`${(info?.ring?.max_event_id ?? 0).toLocaleString()}`} />
-      <StatRow label="Readings" value={`${(info?.ring?.max_reading_id ?? 0).toLocaleString()}`} />
-      <div class="caption">Every raw ring event the phone drained, in the same SQLite schema the desktop client uses. A full backup: <code>oura dashboard --db oura.db</code> runs on it.</div>
+    <div>
+      <div class="eyebrow">Ring replica</div>
+      <div class="kv">
+        <div class="k">Serial</div><div class="v">{info?.ring?.serials.join(', ') || '—'}</div>
+        <div class="k">Raw events</div><div class="v">{(info?.ring?.max_event_id ?? 0).toLocaleString()}</div>
+        <div class="k">Readings</div><div class="v">{(info?.ring?.max_reading_id ?? 0).toLocaleString()}</div>
+      </div>
+      <p class="small sub">Every raw ring event the phone drained, in the same SQLite schema the desktop client uses. A full backup: <span class="num">oura dashboard --db oura.db</span> runs on it.</p>
     </div>
-    <div class="card span4">
-      <CardHeader title="This hub" icon={Server} tint="var(--accent)" />
-      <StatRow label="Address" value={location.host} />
-      <StatRow label="MCP endpoint" value={`${location.origin}/mcp/<token>`} />
-      <StatRow label="Tools" value="get_status_now · get_sleep · get_trends · get_watch · get_health_samples · get_activity" />
-      <div class="caption">An agent with the token reads the same data these pages show.</div>
+    <div>
+      <div class="eyebrow">This hub</div>
+      <div class="kv">
+        <div class="k">Address</div><div class="v">{location.host}</div>
+        <div class="k">MCP</div><div class="v num small">{location.origin}/mcp/&lt;token&gt;</div>
+        <div class="k">Tools</div><div class="v small">get_status_now · get_sleep · get_trends · get_watch · get_health_samples · get_activity</div>
+      </div>
+      <p class="small sub">An agent with the token reads the same data these pages show.</p>
+      <button class="btn" onclick={logout}>Sign out of this browser</button>
     </div>
-    <div class="card span12">
-      <CardHeader title="Apple Health samples" icon={WatchIcon} tint="var(--activity)" detail={total ? `${total.toLocaleString()} samples` : ''} />
-      {#if info?.health?.length}
-        <table class="plain">
-          <thead><tr><th>Kind</th><th>Samples</th><th>Newest</th></tr></thead>
-          <tbody>
-            {#each info.health as k}
-              <tr><td>{kindName(k.kind)}</td><td>{k.count.toLocaleString()}</td><td>{F.dateTime(k.newest_end_unix)} · {F.ago(k.newest_end_unix)}</td></tr>
-            {/each}
-          </tbody>
-        </table>
-        <div class="caption">Pushed by the phone from HealthKit with anchored queries; the app's own export is excluded. The Watch writes heart rate, HRV, sleep, workouts, and the daily counters; other apps' samples arrive too, with their source name.</div>
-      {:else}
-        <div class="label">Nothing pushed yet. Turn on Apple Health in the app's Health hub settings.</div>
-      {/if}
-    </div>
+  </div>
+  <div class="section">
+    <div class="eyebrow">Apple Health samples <span class="aside">{total ? `${total.toLocaleString()} samples` : ''}</span></div>
+    {#if info?.health?.length}
+      <table class="t" style="max-width: 720px">
+        <thead><tr><th>Kind</th><th class="r">Samples</th><th class="r">Newest</th></tr></thead>
+        <tbody>{#each info.health as k}<tr><td class="text">{k.kind.replace(/_/g, ' ')}</td><td class="r">{k.count.toLocaleString()}</td><td class="r">{F.dateTime(k.newest_end_unix)} · {F.ago(k.newest_end_unix)}</td></tr>{/each}</tbody>
+      </table>
+      <p class="small sub">Pushed by the phone from HealthKit with anchored queries; the app's own export is excluded. The Watch writes heart rate, HRV, sleep, workouts, and the daily counters; other apps' samples arrive too, with their source name.</p>
+    {:else}
+      <div class="empty"><b>Nothing pushed yet.</b>Turn on Apple Health in the app's Health hub settings.</div>
+    {/if}
   </div>
 </div>

@@ -1,18 +1,16 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Heart, BedDouble, TrendingUp, Database, QrCode, RefreshCw, LogOut, Sparkles } from 'lucide-svelte'
+  import { RefreshCw, LogOut } from 'lucide-svelte'
   import Login from './pages/Login.svelte'
   import Summary from './pages/Summary.svelte'
   import Sleep from './pages/Sleep.svelte'
   import Trends from './pages/Trends.svelte'
   import Data from './pages/Data.svelte'
   import Ask from './pages/Ask.svelte'
-  import Connect from './pages/Connect.svelte'
-  import { hub, check, load, logout, adoptHashToken } from './lib/store.svelte'
+  import { hub, check, load, logout } from './lib/store.svelte'
   import { ago } from './lib/fmt'
 
-  // hash routes: #/, #/sleep, #/trends/<metric>, #/data, #/connect
-  adoptHashToken()
+  // hash routes: #/, #/sleep, #/trends/<metric>, #/ask, #/data
   let route = $state(location.hash.replace(/^#\/?/, ''))
   const go = (r: string) => { location.hash = '#/' + r }
   onMount(() => {
@@ -26,51 +24,43 @@
   })
   const tab = $derived(route.split('/')[0] || 'summary')
   const tabs = [
-    { id: 'summary', title: 'Summary', icon: Heart },
-    { id: 'sleep', title: 'Sleep', icon: BedDouble },
-    { id: 'trends', title: 'Trends', icon: TrendingUp },
-    { id: 'ask', title: 'Ask', icon: Sparkles },
-    { id: 'data', title: 'Data', icon: Database },
-    { id: 'connect', title: 'Connect', icon: QrCode },
+    { id: 'summary', title: 'Today' },
+    { id: 'sleep', title: 'Sleep' },
+    { id: 'trends', title: 'Trends' },
+    { id: 'ask', title: 'Ask' },
+    { id: 'data', title: 'Data' },
   ]
 </script>
 
 {#if hub.checking}
-  <div class="content"><div class="muted">Opening…</div></div>
+  <div class="wrap"><div class="muted">Opening…</div></div>
 {:else if !hub.authed}
   <Login />
 {:else}
-  <div class="shell">
-    <aside class="sidebar">
-      <div class="brand">Open Oura</div>
-      {#each tabs as t}
-        {@const Icon = t.icon}
-        <button class="nav" class:active={tab === t.id} onclick={() => go(t.id === 'summary' ? '' : t.id)}><Icon size={18} />{t.title}</button>
-      {/each}
-      <div class="foot">
-        <div class="caption">{hub.receivedAt ? `Summary from ${ago(hub.receivedAt)}` : 'No summary yet'}</div>
-        <div style="display:flex; gap: 8px">
-          <button class="icon-btn" title="Refresh" onclick={load}><RefreshCw size={16} style={hub.loading ? 'animation: spin 1s linear infinite' : ''} /></button>
-          <button class="icon-btn" title="Sign out of this browser" onclick={logout}><LogOut size={16} /></button>
-        </div>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand"><span class="mark" aria-hidden="true"></span>Open Oura</div>
+      <nav class="nav" aria-label="Sections">
+        {#each tabs as t}<button class:active={tab === t.id} onclick={() => go(t.id === 'summary' ? '' : t.id)}>{t.title}</button>{/each}
+      </nav>
+      <div class="right">
+        <span>{hub.receivedAt ? `updated ${ago(hub.receivedAt)}` : ''}</span>
+        <button class="btn quiet" title="Refresh" aria-label="Refresh" onclick={load}><RefreshCw size={15} style={hub.loading ? 'animation: spin 1s linear infinite' : ''} /></button>
+        <button class="btn quiet" title="Sign out of this browser" aria-label="Sign out" onclick={logout}><LogOut size={15} /></button>
       </div>
-    </aside>
-    <main class="content">
-      {#if tab === 'connect'}<Connect />
-      {:else if hub.error && !hub.summary}
-        <div class="error">{hub.error}</div>
-      {:else if !hub.summary && hub.loading}
-        <div class="muted">Loading your data…</div>
-      {:else if !hub.summary}
-        <div class="large-title">Open Oura</div>
-        <div class="body">The hub is up, but no summary has been pushed yet. Open <a href="#/connect">Connect</a> and scan the code with your iPhone.</div>
-      {:else if tab === 'sleep'}<Sleep />
-      {:else if tab === 'trends'}<Trends metric={route.split('/')[1] || 'hrv_ms'} />
-      {:else if tab === 'ask'}<Ask />
-      {:else if tab === 'data'}<Data />
-      {:else}<Summary {go} />{/if}
-    </main>
-  </div>
+    </div>
+  </header>
+  {#if hub.error && !hub.summary}
+    <div class="wrap"><div class="error">{hub.error}</div></div>
+  {:else if !hub.summary && hub.loading}
+    <div class="wrap"><div class="skeleton" style="height: 24px; width: 40%"></div><div class="skeleton" style="height: 392px; margin-top: 24px"></div></div>
+  {:else if !hub.summary}
+    <div class="wrap"><h1>Nothing here yet</h1><p class="sub">The hub is up, but no summary has been pushed. Open the app on your phone, go to Settings → Health hub, and tap Send Now.</p></div>
+  {:else if tab === 'sleep'}<Sleep />
+  {:else if tab === 'trends'}<Trends metric={route.split('/')[1] || 'hrv_ms'} />
+  {:else if tab === 'ask'}<Ask />
+  {:else if tab === 'data'}<Data />
+  {:else}<Summary {go} />{/if}
 {/if}
 
 <style>

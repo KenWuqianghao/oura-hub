@@ -2,8 +2,7 @@
   // The built-in agent: a chat over the hub's own data, run by one of the user's
   // agent CLIs on the hub. The reply streams as server-sent events.
   import { onMount } from 'svelte'
-  import { Sparkles, Send, Wrench, RotateCcw } from 'lucide-svelte'
-  import CardHeader from '../components/CardHeader.svelte'
+  import { Send, Wrench, RotateCcw } from 'lucide-svelte'
   import { getToken } from '../lib/api'
 
   type Msg = { role: 'user' | 'assistant'; text: string; tools: { name: string; input: any; result?: string }[]; error?: string; thinking?: string }
@@ -95,63 +94,57 @@
   const toolName = (n: string) => n.replace(/^mcp__health__|^health__/, '')
 </script>
 
-<div class="page">
-  <div class="large-title">Ask</div>
-  <div class="subtitle">An agent on the hub, running your own {current?.title ?? 'agent'} subscription, with the health tools attached. It reads the same data these pages show.</div>
-  <div class="grid">
-    <div class="span3 stack">
-      <div class="card">
-        <CardHeader title="Agent" icon={Sparkles} tint="var(--accent)" />
-        <div class="metric-list">
-          {#each providers as p}
-            <button class:active={provider === p.id} disabled={!p.available} onclick={() => (provider = p.id)} title={p.available ? p.path ?? '' : `Not installed on the hub. ${p.login_hint}.`}>
-              <span>{p.title}</span><span class="caption">{p.available ? (sessions[p.id] ? 'in conversation' : 'ready') : 'not installed'}</span>
-            </button>
-          {/each}
-        </div>
-        {#if current && !current.available}<div class="caption">Install {current.title} on the hub and sign in: {current.login_hint}.</div>{/if}
-        <button class="button secondary" onclick={reset} disabled={busy}><RotateCcw size={14} style="vertical-align:-2px" /> New conversation</button>
+<div class="wrap">
+  <div class="section">
+    <h1>Ask</h1>
+    <p class="sub" style="max-width: 60ch">An agent on the hub, running your own {current?.title ?? 'agent'} subscription, with the health tools attached. It reads the same data these pages show. Answers are not medical advice.</p>
+  </div>
+  <div class="section cols cols-1-3" style="gap: 40px">
+    <div>
+      <div class="eyebrow">Agent</div>
+      <div class="metric-list">
+        {#each providers as p}
+          <button class:active={provider === p.id} disabled={!p.available} onclick={() => (provider = p.id)} title={p.available ? p.path ?? '' : `Not installed on the hub. ${p.login_hint}.`}>
+            <span>{p.title}</span><span class="u">{p.available ? (sessions[p.id] ? 'in conversation' : 'ready') : 'not installed'}</span>
+          </button>
+        {/each}
       </div>
-      <div class="card">
-        <CardHeader title="Try" icon={Send} tint="var(--secondary)" />
-        <div class="metric-list">
-          {#each quick as q}<button onclick={() => ask(q)} disabled={busy || !current?.available}><span style="white-space: normal">{q}</span></button>{/each}
-        </div>
+      {#if current && !current.available}<p class="small sub">Install {current.title} on the hub and sign in: {current.login_hint}.</p>{/if}
+      <button class="btn" style="margin-top: 12px" onclick={reset} disabled={busy}><RotateCcw size={14} /> New conversation</button>
+      <div class="eyebrow" style="margin-top: 28px">Try</div>
+      <div class="metric-list">
+        {#each quick as q}<button onclick={() => ask(q)} disabled={busy || !current?.available}><span style="white-space: normal">{q}</span></button>{/each}
       </div>
     </div>
-    <div class="span9 card" style="min-height: 70vh; display:flex; flex-direction: column">
-      <div bind:this={box} style="flex: 1; overflow: auto; display:flex; flex-direction: column; gap: 14px; padding-right: 4px">
+    <div style="display:flex; flex-direction: column; min-height: 60vh">
+      <div bind:this={box} style="flex: 1; overflow: auto; display:flex; flex-direction: column; gap: 16px">
         {#if !messages.length}
-          <div class="muted" style="margin: auto; text-align: center; max-width: 480px">
-            Ask about your sleep, your recovery, or what to do today. The agent calls the hub's tools and answers in your language. Answers are not medical advice.
-          </div>
+          <div class="empty"><b>Ask about your sleep, your recovery, or what to do today.</b>The agent calls the hub's tools and answers in your language.</div>
         {/if}
         {#each messages as m}
           {#if m.role === 'user'}
-            <div style="align-self: flex-end; max-width: 75%; background: var(--accent); color: #fff; padding: 10px 14px; border-radius: 18px 18px 4px 18px; font-size: 16px; white-space: pre-wrap">{m.text}</div>
+            <div style="align-self: flex-end; max-width: 70%; background: var(--surface-2); padding: 10px 14px; border-radius: 12px 12px 4px 12px; white-space: pre-wrap">{m.text}</div>
           {:else}
             <div style="align-self: flex-start; max-width: 85%; display:flex; flex-direction: column; gap: 8px">
               {#if m.tools.length}
                 <div style="display:flex; flex-wrap: wrap; gap: 6px">
-                  {#each m.tools as t}
-                    <span class="pill" style="background: var(--fill); color: var(--secondary)" title={JSON.stringify(t.input)}><Wrench size={12} /> {toolName(t.name)}{t.result ? '' : ' …'}</span>
-                  {/each}
+                  {#each m.tools as t}<span class="pill neutral" title={JSON.stringify(t.input)}><Wrench size={12} /> {toolName(t.name)}{t.result ? '' : ' …'}</span>{/each}
                 </div>
               {/if}
-              {#if m.thinking && !m.text}<div class="caption">{m.thinking}</div>{/if}
+              {#if m.thinking && !m.text}<div class="small sub">{m.thinking}</div>{/if}
               {#if m.text}
-                <div style="background: var(--fill); padding: 12px 16px; border-radius: 18px 18px 18px 4px; font-size: 16px; line-height: 1.5; white-space: pre-wrap">{m.text}</div>
+                <div style="border-left: 2px solid var(--signal); padding: 4px 14px; line-height: 1.55; white-space: pre-wrap; font-size: 16px">{m.text}</div>
               {:else if !m.error}
-                <div class="caption">{busy ? 'Thinking…' : ''}</div>
+                <div class="skeleton" style="height: 14px; width: 220px"></div>
               {/if}
               {#if m.error}<div class="error">{m.error}</div>{/if}
             </div>
           {/if}
         {/each}
       </div>
-      <form style="display:flex; gap: 10px; margin-top: 14px" onsubmit={e => { e.preventDefault(); ask(input) }}>
+      <form style="display:flex; gap: 10px; margin-top: 16px" onsubmit={e => { e.preventDefault(); ask(input) }}>
         <input class="input" placeholder={current?.available ? `Ask ${current.title}…` : 'No agent is installed on the hub'} bind:value={input} disabled={busy || !current?.available} />
-        <button class="button" style="width: auto; padding: 0 18px" disabled={busy || !input.trim() || !current?.available}><Send size={18} /></button>
+        <button class="btn primary" style="padding: 0 16px" disabled={busy || !input.trim() || !current?.available} aria-label="Send"><Send size={16} /></button>
       </form>
       {#if error}<div class="error" style="margin-top: 10px">{error}</div>{/if}
     </div>

@@ -1,294 +1,233 @@
 <script lang="ts">
-  import { BedDouble, Flame, Sparkles, Activity, HeartPulse, Thermometer, Wind, Moon, Radar, HeartHandshake, Watch as WatchIcon, CircleDot, Footprints, ListChecks } from 'lucide-svelte'
-  import CardHeader from '../components/CardHeader.svelte'
-  import BigValue from '../components/BigValue.svelte'
-  import StatRow from '../components/StatRow.svelte'
-  import Sparkline from '../components/Sparkline.svelte'
-  import Hypnogram from '../components/Hypnogram.svelte'
-  import Ridge from '../components/Ridge.svelte'
-  import ScoreRing from '../components/ScoreRing.svelte'
-  import ScoreBreakdown from '../components/ScoreBreakdown.svelte'
-  import TrendChart from '../components/TrendChart.svelte'
-  import Empty from '../components/Empty.svelte'
-  import { hub } from '../lib/store.svelte'
+  import { ChevronLeft, ChevronRight } from 'lucide-svelte'
+  import DayStrip from '../components/DayStrip.svelte'
+  import NightChart from '../components/NightChart.svelte'
+  import Small from '../components/Small.svelte'
+  import Meter from '../components/Meter.svelte'
+  import { hub, selectDay } from '../lib/store.svelte'
   import * as F from '../lib/fmt'
   import type { Summary, Night } from '../lib/api'
 
   let { go }: { go: (route: string) => void } = $props()
   const s = $derived(hub.summary as Summary)
   const w = $derived(hub.watch)
-  const days = $derived(F.days(s))
-  const day = $derived(days[0] ?? F.todayYmd())
+  const day = $derived(hub.day || F.todayYmd())
+  const isToday = $derived(day === F.todayYmd())
   const night = $derived(F.nightForDay(s, day))
   const act = $derived(s.activity_daily?.[day])
   const profile = $derived(s.activity_profile?.[day] ?? [])
-  const scores = $derived(F.SCORE_KINDS.map(k => ({ kind: k, hit: F.latestScore(s, k, day) })))
-  const anyScore = $derived(scores.some(x => x.hit))
-  const latestHR = $derived(s.vitals?.hr ?? null)
+  const prevProfile = $derived(s.activity_profile?.[F.addDays(day, -1)] ?? [])
+  const scores = $derived(F.SCORE_KINDS.map(k => {
+    const hit = F.latestScore(s, k, day)
+    const last7 = Array.from({ length: 7 }, (_, i) => { const d = F.addDays(day, i - 6); const sc = s.scores?.days?.[d]?.[k]; return sc && typeof sc.score === 'number' ? sc.score : null })
+    return { kind: k, hit, last7 }
+  }))
   const nightsByWake = $derived([...s.nights].filter(n => n.ymd).sort((a, b) => (a.ymd! < b.ymd! ? -1 : 1)))
-  const temps = $derived(nightsByWake.map(n => n.skin_temp).filter((v): v is number => v != null).slice(-14))
-  const oxy = $derived(nightsByWake.map(n => n.spo2_mean).filter((v): v is number => v != null).slice(-14))
-  const latestTemp = $derived([...nightsByWake].reverse().find(n => n.skin_temp != null))
-  const latestOxy = $derived([...nightsByWake].reverse().find(n => n.spo2_mean != null))
-  const ws = $derived(F.workoutsOn(s, day).slice(0, 3))
-  const stagePcts = (n: Night) => [[1, n.deep_pct], [2, n.light_pct], [3, n.rem_pct], [4, n.wake_pct]] as [number, number | null | undefined][]
-  const vitalCells = $derived([
-    { title: 'HRV', icon: Activity, tint: 'var(--hrv)', value: F.num(s.vitals?.hrv?.latest), unit: 'ms', delta: s.vitals?.hrv?.delta_pct, series: s.vitals?.hrv?.series ?? [], baseline: s.vitals?.hrv?.baseline, good: true, route: 'trends/hrv_ms', hint: 'Measured at night.', text: 'Nightly average RMSSD. Higher than your baseline usually means you are recovered.' },
-    { title: 'Heart Rate', icon: HeartPulse, tint: 'var(--heart)', value: F.num(latestHR?.latest ?? s.vitals?.rhr?.latest), unit: 'bpm', delta: latestHR ? null : s.vitals?.rhr?.delta_pct, series: s.vitals?.rhr?.series ?? [], baseline: s.vitals?.rhr?.baseline, good: false, route: 'trends/rhr', detail: latestHR?.hm ? `Latest ${F.monthDay(latestHR.date ?? '')} · ${latestHR.hm}` : 'Nightly minimum', hint: 'Wear the ring.', text: 'The line is your lowest heart rate each night. A rise of 5 to 10 bpm above baseline is worth an easy day.' },
-    { title: 'Skin Temp', icon: Thermometer, tint: 'var(--temperature)', value: latestTemp?.skin_temp != null ? latestTemp.skin_temp.toFixed(1) : '—', unit: '°C', delta: null, series: temps, baseline: null, good: true, route: 'trends/skin_temp', detail: latestTemp ? `Latest ${F.monthDay(F.wakeYmd(latestTemp) ?? '')}` : '', hint: 'Measured at night.', text: 'Nightly skin temperature. A jump of half a degree often precedes illness by a day.' },
-    { title: 'Blood O₂', icon: Wind, tint: 'var(--oxygen)', value: F.num(latestOxy?.spo2_mean), unit: '%', delta: null, series: oxy, baseline: null, good: true, route: 'sleep', detail: latestOxy ? `Latest ${F.monthDay(F.wakeYmd(latestOxy) ?? '')}` : '', hint: 'Turn on SpO₂ on the ring.', text: 'Average blood oxygen during sleep. Values under 95% on several nights are worth a look.' },
+  let range = $state(30)
+  const series = (pick: (n: Night) => number | null | undefined) => nightsByWake.filter(n => pick(n) != null).slice(-range).map(n => ({ ymd: F.wakeYmd(n) ?? n.ymd!, value: pick(n) as number }))
+  const stepsSeries = $derived(Object.entries(s.activity_daily ?? {}).sort().slice(-range).filter(([, v]) => v.steps != null).map(([ymd, v]) => ({ ymd, value: v.steps as number })))
+  const smalls = $derived([
+    { title: 'HRV', unit: 'ms', points: series(n => n.hrv_ms), baseline: s.vitals?.hrv?.baseline ?? null, color: 'var(--signal)', text: 'Nightly RMSSD. Above the band means you are recovered; the band is ±5% of your 14-day baseline.', route: 'trends/hrv_ms' },
+    { title: 'Lowest heart rate', unit: 'bpm', points: series(n => n.rhr), baseline: s.vitals?.rhr?.baseline ?? null, color: 'var(--signal)', text: 'The night’s minimum. Five to ten bpm above the band usually means strain, alcohol, or an illness on its way.', route: 'trends/rhr' },
+    { title: 'Time asleep', unit: 'min', points: series(n => n.metrics?.asleep_min ?? (n.in_bed_h != null ? n.in_bed_h * 60 : null)), baseline: s.sleep_debt?.need_h ? s.sleep_debt.need_h * 60 : null, color: 'var(--signal)', text: 'Minutes in deep, core, or REM sleep. The line is your sleep need.', route: 'trends/asleep_min', decimals: 0 },
+    { title: 'Steps', unit: '', points: stepsSeries, baseline: null, color: 'var(--ember)', text: 'Estimated from the ring’s movement signal.', route: 'trends/steps' },
   ])
   const debt = $derived(s.sleep_debt)
-  const debtDays = $derived((debt?.days ?? []).filter((d: any) => d.total_sleep_min != null).slice(-14))
   const ill = $derived(s.illness)
-  const illTint = $derived(ill?.traffic_light === 'MAJOR_SIGNS' ? 'var(--alert)' : ill?.traffic_light === 'MINOR_SIGNS' ? 'var(--caution)' : 'var(--good)')
-  const illLabel: Record<string, string> = { NO_SIGNS: 'No Signs', MINOR_SIGNS: 'Minor Signs', MAJOR_SIGNS: 'Major Signs' }
-  const illCopy: Record<string, string> = {
-    NO_SIGNS: 'No signs of illness. Your biometrics are within your normal range.',
-    MINOR_SIGNS: 'A few biometrics have drifted outside your usual range. Worth an easy day.',
-    MAJOR_SIGNS: 'Several biometrics are elevated. Your body may be fighting something.',
-  }
-  const relAge = (d: number) => `${Math.abs(d).toFixed(1)} yr ${d < 0 ? 'younger' : 'older'}`
-  const summaryAge = $derived(hub.receivedAt ? F.ago(hub.receivedAt) : '')
-  const ringAge = $derived(s.device?.fresh_hours != null && hub.receivedAt ? F.ago(hub.receivedAt - s.device.fresh_hours * 3600) : '')
-  // 14-day series for the two big charts
-  const hrvPoints = $derived(nightsByWake.filter(n => n.hrv_ms != null).slice(-30).map(n => ({ ymd: F.wakeYmd(n) ?? n.ymd!, value: n.hrv_ms as number })))
-  const rhrPoints = $derived(nightsByWake.filter(n => n.rhr != null).slice(-30).map(n => ({ ymd: F.wakeYmd(n) ?? n.ymd!, value: n.rhr as number })))
   const dayScores = $derived(s.scores?.days?.[day] ?? {})
+  const workouts = $derived([...(hub.dayData?.workouts ?? []), ...F.workoutsOn(s, day).map(wk => ({ start: F.hmOnDay(wk.start.slice(0, 10), wk.start.slice(-5)), end: F.hmOnDay(wk.start.slice(0, 10), wk.start.slice(-5)) + wk.durationMin * 60_000, label: F.activityLabel(wk.label), source: 'ring' }))])
+  const ringAgo = $derived(s.device?.fresh_hours != null && hub.receivedAt ? F.ago(hub.receivedAt - s.device.fresh_hours * 3600) : '—')
+  const watchAgo = $derived(w?.freshness ? F.ago(w.freshness.newest_sample_unix) : '—')
+  const hrDay = $derived(hub.dayData?.day === day ? hub.dayData.hr : [])
+  const illLabel: Record<string, string> = { NO_SIGNS: 'No signs of illness', MINOR_SIGNS: 'Minor signs', MAJOR_SIGNS: 'Major signs' }
 </script>
 
-<div class="page">
-  <div class="large-title">Summary</div>
-  <div class="subtitle">{F.dayTitle(day)}{summaryAge ? ` · updated ${summaryAge}` : ''}{ringAge ? ` · ring synced ${ringAge}` : ''}</div>
-
-  <div class="grid">
-    {#if s.digest}
-      <div class="card span8">
-        <CardHeader title="Highlights" icon={Sparkles} tint="var(--accent)" />
-        <div class="body" style="font-size: 20px">{s.digest}</div>
-        <div class="caption">The digest compares last night's HRV and resting heart rate with your 14-day baseline. Scores below are on-device estimates{s.scores?.basis ? ` (${F.scoreBasisLabel(s.scores.basis)})` : ''}.</div>
+<div class="wrap">
+  <div class="section">
+    <div class="cols cols-2-1">
+      <div>
+        <div style="display:flex; align-items:center; gap: 8px">
+          <button class="btn quiet" aria-label="Previous day" onclick={() => selectDay(F.addDays(day, -1))}><ChevronLeft size={16} /></button>
+          <h1>{F.dayTitle(day)}</h1>
+          <button class="btn quiet" aria-label="Next day" onclick={() => selectDay(F.addDays(day, 1))} disabled={isToday}><ChevronRight size={16} /></button>
+          {#if !isToday}<button class="btn quiet" onclick={() => selectDay(F.todayYmd())}>Today</button>{/if}
+        </div>
+        {#if isToday && s.digest}
+          <p class="lede">{s.digest}</p>
+        {:else if night}
+          <p class="lede">In bed {night.in_bed_h != null ? F.hoursText(night.in_bed_h) : '—'}{night.efficiency != null ? `, ${Math.round(night.efficiency)}% efficient` : ''}{night.hrv_ms != null ? `. HRV ${Math.round(night.hrv_ms)} ms` : ''}{night.rhr != null ? `, lowest heart rate ${Math.round(night.rhr)} bpm.` : '.'}</p>
+        {:else}
+          <p class="lede sub">No night recorded for this day.</p>
+        {/if}
+        <div style="display:grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 32px; margin-top: 18px">
+          {#each scores as sc}
+            <Meter name={F.scoreTitle(sc.kind)} score={sc.hit?.score ?? null} days={sc.last7} provisional={!!sc.hit?.provisional}
+              note={sc.hit ? (sc.hit.day === day ? (dayScores[sc.kind]?.contributors ? `${dayScores[sc.kind].contributors.length} contributors` : '') : `from ${F.dayLabel(sc.hit.day).toLowerCase()}`) : (sc.kind === 'activity' ? 'tracking today' : 'after a night')} />
+          {/each}
+        </div>
       </div>
-    {/if}
-    <div class="card span4">
-      <div style="display:flex; justify-content: space-around; gap: 8px">
-        {#each scores as { kind, hit }}
-          <div style="display:flex; flex-direction:column; align-items:center; gap: 8px; flex: 1; min-width: 0">
-            <ScoreRing score={hit?.score ?? null} tint={F.scoreTint(kind)} size={96} lineWidth={10} />
-            <div style="text-align:center">
-              <div style="font-size:15px; font-weight:600">{F.scoreTitle(kind)}{hit?.provisional ? ' ◌' : ''}</div>
-              {#if hit}
-                <div class="caption" style="color: {hit.day === day ? F.scoreBand(hit.score).color : 'var(--secondary)'}">{hit.day === day ? F.scoreBand(hit.score).label : F.dayLabel(hit.day)}</div>
-              {:else}
-                <div class="caption">{kind === 'activity' ? 'Tracking today' : 'After a night'}</div>
-              {/if}
-            </div>
+      <div>
+        <div class="eyebrow">Status</div>
+        <div class="kv">
+          <div class="k">Ring synced</div><div class="v">{ringAgo}{s.device?.battery_pct != null ? ` · battery ${s.device.battery_pct}%` : ''}</div>
+          <div class="k">Watch newest sample</div><div class="v">{watchAgo}</div>
+          <div class="k">Summary built</div><div class="v">{hub.receivedAt ? F.ago(hub.receivedAt) : '—'}{s.pushed_by ? ` · ${s.pushed_by.client} ${s.pushed_by.version}` : ''}</div>
+          <div class="k">Sleep debt</div><div class="v">{debt?.valid ? `${F.minutesText(debt.debt_min)} · ` : ''}<span class="pill {F.statusPillClass(debt?.state)}">{debt?.valid ? F.debtLabel(debt.state) : `${debt?.valid_days ?? 0} of 5 days`}</span></div>
+          <div class="k">Illness signs</div><div class="v"><span class="pill {ill?.available ? F.statusPillClass(ill.traffic_light) : 'neutral'}">{ill?.available ? (illLabel[ill.traffic_light] ?? '—') : 'needs more nights'}</span></div>
+          {#if s.cardio?.vascular_age != null}<div class="k">Vascular age</div><div class="v">{s.cardio.vascular_age.toFixed(1)} yr{s.cardio.chronological_age != null ? ` (you are ${s.cardio.chronological_age})` : ''}</div>{/if}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section" style="padding-top: 8px; border-top: 0">
+    <DayStrip {day} dayStart={F.dayStartMs(day)} nights={s.nights} hr={hrDay} {profile} {prevProfile} {workouts} />
+    <div class="cols cols-4" style="margin-top: 14px; gap: 32px">
+      <div class="stat"><div class="label">Steps (ring)</div><div class="value">{F.num(act?.steps)}</div><div class="delta">{w?.today?.steps != null && isToday ? `watch ${F.num(w.today.steps)}` : ''}</div></div>
+      <div class="stat"><div class="label">Active energy</div><div class="value">{F.num(act?.active_kcal)}<small>kcal</small></div><div class="delta">{act?.total_kcal != null ? `${F.num(act.total_kcal)} kcal total` : ''}</div></div>
+      <div class="stat"><div class="label">Exercise (watch)</div><div class="value">{isToday ? F.num(w?.today?.exercise_min) : '—'}<small>min</small></div><div class="delta">{isToday && w?.today?.stand_hours != null ? `${w.today.stand_hours} stand hours` : ''}</div></div>
+      <div class="stat"><div class="label">Workouts</div><div class="value">{workouts.length}</div><div class="delta">{workouts.map(x => x.label).slice(0, 3).join(' · ')}</div></div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="eyebrow">Last {range} nights <span class="spacer"></span>
+      <span class="seg">{#each [14, 30, 90] as r}<button class:active={range === r} onclick={() => (range = r)}>{r} d</button>{/each}</span>
+    </div>
+    <div class="cols cols-4">
+      {#each smalls as sm}
+        <div>
+          <div style="display:flex; align-items:baseline; justify-content:space-between; gap: 8px">
+            <h2 style="margin:0"><a href={'#/' + sm.route} style="color:inherit">{sm.title}</a></h2>
+            <span class="num small sub">{sm.points.length ? `${sm.points[sm.points.length - 1].value.toFixed(sm.decimals ?? 0)}${sm.unit ? ' ' + sm.unit : ''}` : ''}</span>
+          </div>
+          <Small points={sm.points} baseline={sm.baseline} unit={sm.unit} decimals={sm.decimals ?? 0} color={sm.color} />
+          <div class="small sub" style="margin-top: 4px">{sm.text}</div>
+        </div>
+      {/each}
+    </div>
+  </div>
+
+  {#if night}
+    <div class="section">
+      <div class="eyebrow">The night <span class="aside">{night.start} – {night.end}{night.bedtime_adjusted ? ' · bedtime adjusted' : ''}</span></div>
+      <div class="cols cols-1-3">
+        <div>
+          <div class="kv">
+            <div class="k">In bed</div><div class="v">{night.in_bed_h != null ? F.hoursText(night.in_bed_h) : '—'}</div>
+            <div class="k">Asleep</div><div class="v">{night.metrics?.asleep_min != null ? F.minutesText(night.metrics.asleep_min) : '—'}</div>
+            <div class="k">Efficiency</div><div class="v">{night.efficiency != null ? `${Math.round(night.efficiency)} %` : '—'}</div>
+            <div class="k">Sleep score</div><div class="v">{night.sleep_score != null ? Math.round(night.sleep_score) : '—'}</div>
+            <div class="k">Fell asleep in</div><div class="v">{night.metrics?.sol_min != null ? `${Math.round(night.metrics.sol_min)} min` : '—'}</div>
+            <div class="k">Awake after onset</div><div class="v">{night.metrics?.waso_min != null ? `${Math.round(night.metrics.waso_min)} min` : '—'}</div>
+            <div class="k">Awakenings</div><div class="v">{night.metrics?.awakenings ?? '—'}</div>
+            <div class="k">Cycles</div><div class="v">{night.metrics?.cycles ?? '—'}</div>
+            <div class="k">Stages</div><div class="v">{[['deep', night.deep_pct], ['core', night.light_pct], ['REM', night.rem_pct], ['awake', night.wake_pct]].map(([k, v]) => v != null ? `${Math.round(v as number)}% ${k}` : '').filter(Boolean).join(', ')}</div>
+            <div class="k">HRV</div><div class="v">{night.hrv_ms != null ? `${Math.round(night.hrv_ms)} ms` : '—'}</div>
+            <div class="k">Lowest heart rate</div><div class="v">{night.rhr != null ? `${Math.round(night.rhr)} bpm` : '—'}</div>
+            <div class="k">Skin temperature</div><div class="v">{night.skin_temp != null ? `${night.skin_temp.toFixed(1)} °C` : '—'}</div>
+            <div class="k">Blood oxygen</div><div class="v">{night.spo2_mean != null ? `${Math.round(night.spo2_mean)} %` : '—'}</div>
+          </div>
+        </div>
+        <div class="panel"><div class="panel-body"><NightChart {night} height={440} /></div></div>
+      </div>
+    </div>
+  {/if}
+
+  {#if scores.some(x => x.hit)}
+    <div class="section">
+      <div class="eyebrow">What made the scores <span class="aside">{s.scores?.basis ? F.scoreBasisLabel(s.scores.basis) : ''}</span></div>
+      <div class="cols cols-3">
+        {#each F.SCORE_KINDS as kind}
+          {@const sc = dayScores[kind] ?? (F.latestScore(s, kind, day) ? s.scores?.days?.[F.latestScore(s, kind, day)!.day]?.[kind] : null)}
+          <div>
+            <h2>{F.scoreTitle(kind)}{sc ? ` · ${Math.round(sc.score)}` : ''}</h2>
+            {#if !sc}<div class="empty small">No score yet.</div>{:else}
+              {#each (sc.contributors ?? []) as c}
+                <div class="contrib">
+                  <span>{c.name} <span class="small muted">weight {Math.round(c.weight * 100)}%</span></span>
+                  <span class="num small">{c.value != null ? `${Number.isInteger(c.value) ? c.value : c.value.toFixed(1)} ${c.unit ?? ''} · ` : ''}<b>{Math.round(c.score)}</b></span>
+                  <div class="track"><i style="width:{Math.max(0, Math.min(100, c.score))}%"></i></div>
+                  {#if c.source}<div class="source">{c.source}</div>{/if}
+                </div>
+              {/each}
+            {/if}
           </div>
         {/each}
       </div>
-      {#if !anyScore}
-        <div class="caption">Your scores start after the first night with your ring on.</div>
-      {:else if scores.some(x => x.hit?.provisional)}
-        <div class="caption">◌ Early estimates. They settle after about two weeks of nights.</div>
-      {/if}
     </div>
+  {/if}
 
-    <div class="card span8 link" role="button" tabindex="0" onclick={() => go('sleep')} onkeydown={e => e.key === 'Enter' && go('sleep')}>
-      <CardHeader title="Sleep" icon={BedDouble} tint="var(--sleep)" detail={night ? `${night.start ?? '—'} – ${night.end ?? '—'}` : ''} chevron />
-      {#if night}
-        <div class="row">
-          <div><div class="label">Time in Bed</div><BigValue parts={night.in_bed_h != null ? F.hoursMinutes(night.in_bed_h) : [['—', '']]} /></div>
-          {#if night.metrics?.asleep_min != null}<div><div class="label">Asleep</div><BigValue parts={F.minutesParts(night.metrics.asleep_min)} /></div>{/if}
-          {#if F.hasHypnogram(night) && night.efficiency != null}<div><div class="label">Efficiency</div><BigValue parts={[[`${Math.round(night.efficiency)}`, '%']]} /></div>{/if}
-          {#if night.hrv_ms != null}<div><div class="label">HRV</div><BigValue parts={[[`${Math.round(night.hrv_ms)}`, 'ms']]} /></div>{/if}
-          {#if night.rhr != null}<div><div class="label">Lowest HR</div><BigValue parts={[[`${Math.round(night.rhr)}`, 'bpm']]} /></div>{/if}
-        </div>
-        {#if F.hasHypnogram(night)}
-          <Hypnogram stages={night.stages_full?.length ? night.stages_full : night.stages ?? []} height={90} ticks={F.hourTicks(night.start, night.in_bed_h)} />
-          <div class="legend">
-            {#each stagePcts(night) as [code, pct]}<span><span class="dot" style="background:{F.stageColor(code)}"></span>{F.stageName(code)} {Math.round(pct ?? 0)}%</span>{/each}
-            {#if night.metrics}<span>· fell asleep in {Math.round(night.metrics.sol_min ?? 0)} min</span><span>· {night.metrics.awakenings ?? 0} awakenings</span><span>· {night.metrics.cycles ?? 0} cycles</span>{/if}
-          </div>
-        {/if}
-      {:else}
-        <Empty icon={Moon} title="No Sleep Yet" text="Wear your ring tonight. Tomorrow morning, last night will appear here." />
-      {/if}
-    </div>
-
-    <div class="card span4">
-      <CardHeader title="Activity" icon={Flame} tint="var(--activity)" />
-      {#if !act && profile.length < 2}
-        <Empty icon={Footprints} title="No Movement Yet" text="Steps and active energy appear after the first sync of the day." />
-      {:else}
-        <div class="row" style="gap: 20px">
-          <div><div class="label">Steps</div><BigValue parts={[[F.num(act?.steps), '']]} /></div>
-          <div><div class="label">Active</div><BigValue parts={[[F.num(act?.active_kcal), 'kcal']]} /></div>
-          <div><div class="label">Total</div><BigValue parts={[[F.num(act?.total_kcal), 'kcal']]} size="small" /></div>
-        </div>
-      {/if}
-      {#if profile.length > 1}<Ridge {profile} height={70} axis />{/if}
-      {#if ws.length}
-        <div class="divider"></div>
-        {#each ws as wk}<div class="stat-row"><span>{F.activityLabel(wk.label)}</span><span class="v muted">{wk.durationMin} min · {wk.start.slice(-5)}</span></div>{/each}
-      {/if}
-    </div>
-
-    <div class="section-title">Vitals</div>
-    {#each vitalCells as c}
-      <div class="card span3 link" role="button" tabindex="0" onclick={() => go(c.route)} onkeydown={e => e.key === 'Enter' && go(c.route)}>
-        <CardHeader title={c.title} icon={c.icon} tint={c.tint} chevron={c.value !== '—'} />
-        {#if c.value !== '—'}
-          <BigValue parts={[[c.value, c.unit]]} />
-          {#if c.delta != null}
-            <div class="caption" style="color: {F.tone(c.delta, c.good)}">{c.delta >= 0 ? '+' : ''}{Math.round(c.delta)}% vs baseline{c.baseline != null ? ` (${F.num(c.baseline, 1)} ${c.unit})` : ''}</div>
-          {:else if c.detail}
-            <div class="caption">{c.detail}</div>
-          {/if}
-        {:else}
-          <div style="font-size:20px;font-weight:600;color:var(--secondary)">No Data</div>
-          <div class="caption">{c.hint}</div>
-        {/if}
-        {#if c.series.length > 1}<Sparkline series={c.series} accent={c.tint} baseline={c.baseline ?? null} height={64} />{/if}
-        <div class="caption">{c.text}</div>
-      </div>
-    {/each}
-
-    {#if hrvPoints.length > 1 || rhrPoints.length > 1}
-      <div class="card span6">
-        <CardHeader title="HRV, last 30 nights" icon={Activity} tint="var(--hrv)" detail={s.vitals?.hrv?.baseline != null ? `Baseline ${F.num(s.vitals.hrv.baseline, 1)} ms` : ''} />
-        <TrendChart points={hrvPoints} accent="var(--hrv)" baseline={s.vitals?.hrv?.baseline ?? null} unit="ms" height={220} />
-      </div>
-      <div class="card span6">
-        <CardHeader title="Lowest heart rate, last 30 nights" icon={HeartPulse} tint="var(--heart)" detail={s.vitals?.rhr?.baseline != null ? `Baseline ${F.num(s.vitals.rhr.baseline, 1)} bpm` : ''} />
-        <TrendChart points={rhrPoints} accent="var(--heart)" baseline={s.vitals?.rhr?.baseline ?? null} unit="bpm" height={220} />
-      </div>
-    {/if}
-
-    {#if anyScore}
-      <div class="section-title">Score breakdown for {F.dayLabel(day).toLowerCase()}</div>
-      {#each F.SCORE_KINDS as kind}
-        <div class="card span4">
-          <CardHeader title={F.scoreTitle(kind)} icon={ListChecks} tint={F.scoreTint(kind)} />
-          <ScoreBreakdown title="Contributors" score={dayScores[kind]} tint={F.scoreTint(kind)} />
-        </div>
-      {/each}
-    {/if}
-
-    {#if w?.available}
-      <div class="section-title">Apple Watch</div>
-      <div class="card span8">
-        <CardHeader title="Today" icon={WatchIcon} tint="var(--activity)" detail={w.freshness ? `newest sample ${w.freshness.age_min < 60 ? Math.round(w.freshness.age_min) + ' min' : (w.freshness.age_min / 60).toFixed(1) + ' h'} ago` : ''} />
-        <div class="row" style="gap: 32px">
-          <div><div class="label">Steps</div><BigValue parts={[[F.num(w.today?.steps), '']]} /></div>
-          <div><div class="label">Active</div><BigValue parts={[[F.num(w.today?.active_kcal), 'kcal']]} /></div>
-          <div><div class="label">Exercise</div><BigValue parts={[[F.num(w.today?.exercise_min), 'min']]} /></div>
-          <div><div class="label">Stand</div><BigValue parts={[[F.num(w.today?.stand_hours), 'hr']]} /></div>
-          <div><div class="label">Distance</div><BigValue parts={[[w.today?.distance_m != null ? (w.today.distance_m / 1000).toFixed(1) : '—', 'km']]} /></div>
-        </div>
-        <div class="caption">Yesterday: {F.num(w.yesterday?.steps)} steps · {F.num(w.yesterday?.active_kcal)} kcal · {F.num(w.yesterday?.exercise_min)} min exercise · {F.num(w.yesterday?.stand_hours)} stand hours. Day totals take the best single source, so the iPhone and the Watch are not added together.</div>
-        {#if w.workouts_48h?.length}
-          <div class="divider"></div>
-          <table class="plain">
-            <thead><tr><th>Workout</th><th>When</th><th>Duration</th><th>Energy</th><th>Distance</th><th>Source</th></tr></thead>
+  <div class="section">
+    <div class="cols cols-2-1">
+      <div>
+        <div class="eyebrow">Apple Watch <span class="aside">{w?.available ? `newest sample ${watchAgo}` : 'nothing pushed yet'}</span></div>
+        {#if w?.available}
+          <table class="t">
+            <thead><tr><th></th><th class="r">Today</th><th class="r">Yesterday</th></tr></thead>
             <tbody>
-              {#each w.workouts_48h as wk}
-                <tr><td>{F.activityLabel(wk.activity)}</td><td>{F.dateTime(wk.start_unix)}</td><td>{wk.duration_min != null ? Math.round(wk.duration_min) + ' min' : '—'}</td><td>{wk.kcal != null ? Math.round(wk.kcal) + ' kcal' : '—'}</td><td>{wk.distance_m != null ? (wk.distance_m / 1000).toFixed(2) + ' km' : '—'}</td><td class="muted">{wk.source ?? ''}</td></tr>
-              {/each}
+              <tr><td class="text">Steps</td><td class="r">{F.num(w.today?.steps)}</td><td class="r">{F.num(w.yesterday?.steps)}</td></tr>
+              <tr><td class="text">Active energy</td><td class="r">{F.num(w.today?.active_kcal)} kcal</td><td class="r">{F.num(w.yesterday?.active_kcal)} kcal</td></tr>
+              <tr><td class="text">Exercise</td><td class="r">{F.num(w.today?.exercise_min)} min</td><td class="r">{F.num(w.yesterday?.exercise_min)} min</td></tr>
+              <tr><td class="text">Stand hours</td><td class="r">{F.num(w.today?.stand_hours)}</td><td class="r">{F.num(w.yesterday?.stand_hours)}</td></tr>
+              <tr><td class="text">Distance</td><td class="r">{w.today?.distance_m != null ? (w.today.distance_m / 1000).toFixed(1) + ' km' : '—'}</td><td class="r">{w.yesterday?.distance_m != null ? (w.yesterday.distance_m / 1000).toFixed(1) + ' km' : '—'}</td></tr>
             </tbody>
           </table>
-        {/if}
-      </div>
-      <div class="card span4">
-        <CardHeader title="Watch vitals" icon={HeartPulse} tint="var(--heart)" />
-        <StatRow label="Heart rate" value={w.heart_rate_latest?.value != null ? `${Math.round(w.heart_rate_latest.value)} bpm · ${F.timeHM(w.heart_rate_latest.at_unix ?? 0)}` : '—'} />
-        <StatRow label="Resting heart rate" value={w.resting_heart_rate?.value != null ? `${Math.round(w.resting_heart_rate.value)} bpm` : '—'} />
-        <StatRow label="HRV (SDNN), latest" value={w.hrv_sdnn?.latest?.value != null ? `${Math.round(w.hrv_sdnn.latest.value)} ms` : '—'} />
-        <StatRow label="HRV (SDNN), 7-day mean" value={w.hrv_sdnn?.mean_7d_ms != null ? `${w.hrv_sdnn.mean_7d_ms} ms` : '—'} />
-        <StatRow label="VO₂ max" value={w.vo2_max?.value != null ? `${w.vo2_max.value} ml/kg/min` : '—'} />
-        <StatRow label="Respiratory rate" value={w.respiratory_rate?.value != null ? `${w.respiratory_rate.value} /min` : '—'} />
-        <StatRow label="Blood oxygen" value={w.oxygen_saturation?.value != null ? `${Math.round(w.oxygen_saturation.value * 100)} %` : '—'} />
-        <StatRow label="Wrist temperature" value={w.wrist_temperature?.value != null ? `${w.wrist_temperature.value.toFixed(2)} °C` : '—'} />
-        {#if w.last_sleep}
-          <div class="divider"></div>
-          <StatRow label="Last sleep" value={`${F.minutesText(w.last_sleep.asleep_min)} asleep · ${F.timeHM(w.last_sleep.start_unix)} – ${F.timeHM(w.last_sleep.end_unix)}`} />
-          <StatRow label="Stages" value={`deep ${Math.round(w.last_sleep.deep_min)} · core ${Math.round(w.last_sleep.core_min)} · REM ${Math.round(w.last_sleep.rem_min)} · awake ${Math.round(w.last_sleep.awake_min)} min`} />
-        {/if}
-      </div>
-    {/if}
-
-    {#if debt || ill}<div class="section-title">Recovery</div>{/if}
-    {#if debt}
-      <div class="card span6">
-        <CardHeader title="Sleep Debt" icon={Moon} tint="var(--sleep)" detail={`Past ${debt.window_days} days · need ${debt.need_h} h`} />
-        {#if debt.valid}
-          <div style="display:flex; align-items:baseline; gap:10px">
-            <BigValue parts={F.minutesParts(debt.debt_min)} color={F.debtColor(debt.state)} />
-            <span class="pill" style="color:{F.debtColor(debt.state)}; background: color-mix(in srgb, {F.debtColor(debt.state)} 14%, transparent)">{F.debtLabel(debt.state)}</span>
-          </div>
-          <div class="label">{F.debtCopy(debt.state)} Recent shortfall: {F.minutesText(debt.recent_shortfall_min)}.</div>
-        {:else}
-          <div style="font-size:20px;font-weight:600">{debt.valid_days} of 5 days available</div>
-          <div class="label">5 days of sleep data are needed within the past 2 weeks. The debt is the sum of each night's shortfall against your need, discounted over 14 days.</div>
-        {/if}
-        {#if debtDays.length}
-          <table class="plain">
-            <thead><tr><th>Night</th><th>Slept</th><th>Need</th><th>Shortfall</th><th>Debt</th></tr></thead>
-            <tbody>
-              {#each debtDays as d}
-                <tr><td>{F.monthDay(d.date)}</td><td>{F.minutesText(d.total_sleep_min)}</td><td>{F.minutesText(d.sleep_need_min)}</td><td>{d.shortfall_min != null ? F.minutesText(Math.max(0, d.shortfall_min)) : '—'}</td><td>{d.cumulative_debt_min != null ? F.minutesText(d.cumulative_debt_min) : '—'}</td></tr>
-              {/each}
-            </tbody>
-          </table>
-        {/if}
-      </div>
-    {/if}
-    {#if ill}
-      <div class="card span6">
-        <CardHeader title="Symptom Radar" icon={Radar} tint={illTint} detail={ill.available ? `${ill.days_with_data ?? 0} of 30 days` : ''} />
-        {#if !ill.available}
-          <div class="label">{ill.status === 'MISSING_LAST_NIGHT_SLEEP' ? 'Wear the ring overnight and sync. Last night is missing.' : 'Needs more recent nights (at least 7 of the last 14).'}</div>
-        {:else}
-          <div style="font-size:22px;font-weight:600">{illLabel[ill.traffic_light] ?? '—'}</div>
-          <div class="label">{illCopy[ill.status] ?? ''}</div>
-          {#if ill.biomarkers?.length}
-            <table class="plain">
-              <thead><tr><th>Biomarker</th><th>Value</th><th>Normal range</th><th></th></tr></thead>
-              <tbody>{#each ill.biomarkers as b}<tr><td>{b.type}</td><td>{b.value}</td><td>{b.lower} – {b.upper}</td><td style="color: {b.reason ? 'var(--caution)' : 'var(--good)'}">{b.reason ?? 'in range'}</td></tr>{/each}</tbody>
+          <div class="small sub" style="margin-top: 8px">Day totals take the best single source, so the iPhone and the Watch are never added together.</div>
+          {#if w.workouts_48h?.length}
+            <table class="t" style="margin-top: 16px">
+              <thead><tr><th>Workout</th><th>When</th><th class="r">Duration</th><th class="r">Energy</th><th class="r">Distance</th></tr></thead>
+              <tbody>{#each w.workouts_48h as wk}<tr><td class="text">{F.activityLabel(wk.activity)}</td><td>{F.dateTime(wk.start_unix)}</td><td class="r">{wk.duration_min != null ? Math.round(wk.duration_min) + ' min' : '—'}</td><td class="r">{wk.kcal != null ? Math.round(wk.kcal) + ' kcal' : '—'}</td><td class="r">{wk.distance_m != null ? (wk.distance_m / 1000).toFixed(2) + ' km' : '—'}</td></tr>{/each}</tbody>
             </table>
           {/if}
+        {:else}
+          <div class="empty"><b>No Apple Health data yet.</b>Turn on Apple Health in the app's Health hub settings.</div>
         {/if}
       </div>
-    {/if}
-
-    <div class="section-title">Body and ring</div>
-    <div class="card span6">
-      <CardHeader title="Heart Health" icon={HeartHandshake} tint="var(--cardio)" />
-      {#if s.cardio?.vascular_age != null}
-        <div class="label">Vascular age</div>
-        <BigValue parts={[[s.cardio.vascular_age.toFixed(1), 'yr']]} />
-        {#if s.cardio.chronological_age != null}
-          <div class="label" style="color:{F.tone((s.cardio.vascular_age - s.cardio.chronological_age) * 100, false, 50)}">{relAge(s.cardio.vascular_age - s.cardio.chronological_age)} than your age</div>
-        {/if}
-        {#if s.cardio.pwv_ms != null}<div class="divider"></div><StatRow label="Pulse speed in arteries" value={`${s.cardio.pwv_ms.toFixed(1)} m/s`} />{/if}
-      {:else}
-        <div class="caption">Vascular age needs the on-device cardio model and a few nights of raw PPG. It arrives after the ring records with Cardio PPG on.</div>
-      {/if}
-      {#if s.fitness?.vo2max != null}
-        <div class="divider"></div>
-        <StatRow label="Cardio fitness (VO₂ max, estimate)" value={s.fitness.vo2max.toFixed(0)} />
-        <div class="caption">The ring's VO₂ max is the Jackson non-exercise estimate from age, sex, and weight. The Watch measures it from outdoor walks and runs{w?.vo2_max?.value != null ? `: ${w.vo2_max.value} ml/kg/min` : ''}.</div>
-      {/if}
+      <div>
+        <div class="eyebrow">Watch vitals</div>
+        <div class="kv">
+          <div class="k">Heart rate</div><div class="v">{w?.heart_rate_latest?.value != null ? `${Math.round(w.heart_rate_latest.value)} bpm · ${F.timeHM(w.heart_rate_latest.at_unix ?? 0)}` : '—'}</div>
+          <div class="k">Resting heart rate</div><div class="v">{w?.resting_heart_rate?.value != null ? `${Math.round(w.resting_heart_rate.value)} bpm` : '—'}</div>
+          <div class="k">HRV (SDNN)</div><div class="v">{w?.hrv_sdnn?.latest?.value != null ? `${Math.round(w.hrv_sdnn.latest.value)} ms` : '—'}{w?.hrv_sdnn?.mean_7d_ms != null ? ` · 7-day mean ${w.hrv_sdnn.mean_7d_ms}` : ''}</div>
+          <div class="k">VO₂ max</div><div class="v">{w?.vo2_max?.value != null ? `${w.vo2_max.value} ml/kg/min` : '—'}</div>
+          <div class="k">Respiratory rate</div><div class="v">{w?.respiratory_rate?.value != null ? `${w.respiratory_rate.value} /min` : '—'}</div>
+          <div class="k">Blood oxygen</div><div class="v">{w?.oxygen_saturation?.value != null ? `${Math.round(w.oxygen_saturation.value * 100)} %` : '—'}</div>
+          <div class="k">Wrist temperature</div><div class="v">{w?.wrist_temperature?.value != null ? `${w.wrist_temperature.value.toFixed(2)} °C` : '—'}</div>
+          {#if w?.last_sleep}<div class="k">Last sleep (watch)</div><div class="v">{F.minutesText(w.last_sleep.asleep_min)} · {F.timeHM(w.last_sleep.start_unix)} – {F.timeHM(w.last_sleep.end_unix)}</div>{/if}
+        </div>
+      </div>
     </div>
-    <div class="card span6">
-      <CardHeader title="Ring" icon={CircleDot} tint="var(--device)" detail={s.device?.firmware ? `Firmware ${s.device.firmware}` : ''} />
-      {#if s.device?.battery_pct != null}
-        <div class="row"><div><div class="label">Battery</div><BigValue parts={[[`${s.device.battery_pct}`, '%']]} color={s.device.battery_pct < 20 ? 'var(--alert)' : 'var(--text)'} /></div></div>
-      {/if}
-      <div class="divider"></div>
-      <StatRow label="Serial" value={s.device?.serial ?? '—'} />
-      <StatRow label="Last sync" value={s.device?.synced ? `${F.monthDay(s.device.synced)} ${s.device.synced_hm ?? ''}` : '—'} />
-      <StatRow label="Days of data" value={s.device?.days_of_data != null ? `${Math.round(s.device.days_of_data)}` : '—'} />
-      <StatRow label="Nights" value={`${s.device?.nights ?? s.nights.length}`} />
-      <StatRow label="Summary built by" value={s.pushed_by ? `${s.pushed_by.client} ${s.pushed_by.version}` : '—'} />
+  </div>
+
+  <div class="section">
+    <div class="cols cols-2-1">
+      <div>
+        <div class="eyebrow">Sleep debt <span class="aside">past {debt?.window_days ?? 14} days · need {debt?.need_h ?? 8} h</span></div>
+        {#if debt?.valid}
+          <p style="margin: 0 0 10px"><span class="hero" style="color: {F.debtColor(debt.state)}">{F.minutesText(debt.debt_min)}</span> <span class="sub">{F.debtCopy(debt.state)}</span></p>
+        {:else}
+          <p class="sub" style="margin: 0 0 10px">{debt?.valid_days ?? 0} of 5 days available. The debt is the sum of each night's shortfall against your need, discounted over 14 days.</p>
+        {/if}
+        {#if (debt?.days ?? []).some((d: any) => d.total_sleep_min != null)}
+          <table class="t">
+            <thead><tr><th>Night</th><th class="r">Slept</th><th class="r">Need</th><th class="r">Shortfall</th><th class="r">Debt</th></tr></thead>
+            <tbody>{#each (debt?.days ?? []).filter((d: any) => d.total_sleep_min != null).slice(-14) as d}<tr><td>{F.monthDay(d.date)}</td><td class="r">{F.minutesText(d.total_sleep_min)}</td><td class="r">{F.minutesText(d.sleep_need_min)}</td><td class="r">{d.shortfall_min != null ? F.minutesText(Math.max(0, d.shortfall_min)) : '—'}</td><td class="r">{d.cumulative_debt_min != null ? F.minutesText(d.cumulative_debt_min) : '—'}</td></tr>{/each}</tbody>
+          </table>
+        {/if}
+      </div>
+      <div>
+        <div class="eyebrow">Ring</div>
+        <div class="kv">
+          <div class="k">Serial</div><div class="v">{s.device?.serial ?? '—'}</div>
+          <div class="k">Firmware</div><div class="v">{s.device?.firmware ?? '—'}</div>
+          <div class="k">Battery</div><div class="v">{s.device?.battery_pct != null ? `${s.device.battery_pct} %` : '—'}</div>
+          <div class="k">Last sync</div><div class="v">{s.device?.synced ? `${F.monthDay(s.device.synced)} ${s.device.synced_hm ?? ''}` : '—'}</div>
+          <div class="k">Days of data</div><div class="v">{s.device?.days_of_data != null ? Math.round(s.device.days_of_data) : '—'}</div>
+          <div class="k">Nights</div><div class="v">{s.device?.nights ?? s.nights.length}</div>
+          {#if s.fitness?.vo2max != null}<div class="k">VO₂ max (estimate)</div><div class="v">{s.fitness.vo2max.toFixed(0)}</div>{/if}
+        </div>
+      </div>
     </div>
   </div>
 </div>
