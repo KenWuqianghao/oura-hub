@@ -82,7 +82,7 @@
       </div>
       {@render field('mcp', 'MCP address (Streamable HTTP, the token is in the path)', mcp)}
       {@render field('claude', 'Claude Code', claudeCmd)}
-      {@render field('json', 'Cursor, Grok Bot, and other clients (mcpServers)', json)}
+      {@render field('json', 'Cursor and other clients (mcpServers)', json)}
       <p class="small sub">Claude Desktop and claude.ai: Settings → Connectors → Add custom connector, then paste the MCP address. A hosted agent needs a public <span class="num">https://</span> address (Tailscale Funnel). Ask it: “Call get_status_now and plan my day.”</p>
     </div>
   </div>

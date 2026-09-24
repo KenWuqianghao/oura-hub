@@ -97,7 +97,7 @@ async fn ingest_then_health_then_tools() {
     assert_eq!(h["snapshots"], 1);
     assert_eq!(h["latest_generated_at"], 1_700_000_000.0);
 
-    // token in the path, as Grok Bot's url-only config needs
+    // token in the path, for clients that accept only a URL
     let uri = format!("/mcp/{TOKEN}");
     let (s, r) = send(&app, post(&uri, None, rpc(1, "initialize", json!({ "protocolVersion": "2025-06-18" })))).await;
     assert_eq!(s, StatusCode::OK);
