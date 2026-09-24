@@ -129,3 +129,21 @@ export function latestScore(s: Summary, kind: ScoreKind, upTo: string): { day: s
   return null
 }
 export function activityLabel(s: string): string { return s ? s[0].toUpperCase() + s.slice(1) : s }
+
+/** Hour-mark labels across a window that starts at "HH:MM" and lasts `hours`: [fraction, label]. */
+export function hourTicks(startHM: string | undefined, hours: number | null | undefined, every = 1): [number, string][] {
+  if (!startHM || !hours || hours <= 0) return []
+  const [h0, m0] = startHM.split(':').map(Number)
+  const startMin = h0 * 60 + m0
+  const total = hours * 60
+  const out: [number, string][] = []
+  const first = Math.ceil(startMin / (every * 60)) * every * 60
+  for (let t = first; t <= startMin + total; t += every * 60) {
+    const frac = (t - startMin) / total
+    if (frac < 0.03 || frac > 0.97) continue
+    out.push([frac, `${String(Math.floor((t % 1440) / 60)).padStart(2, '0')}:00`])
+  }
+  return out
+}
+export const HOURS_OF_DAY: [number, string][] = [[0, '00:00'], [0.25, '06:00'], [0.5, '12:00'], [0.75, '18:00'], [1, '24:00']]
+export function scoreBasisLabel(basis?: string): string { return basis ? basis.replace(/ — see .*$/, '') : '' }

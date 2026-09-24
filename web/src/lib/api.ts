@@ -42,6 +42,7 @@ export interface Night {
   in_bed_h?: number | null; hrv_ms?: number | null; rhr?: number | null; skin_temp?: number | null; spo2_mean?: number | null
   deep_pct?: number | null; light_pct?: number | null; rem_pct?: number | null; wake_pct?: number | null; efficiency?: number | null
   stages?: number[] | null; stages_full?: number[] | null; metrics?: NightMetrics | null; sleep_score?: number | null
+  bedtime_adjusted?: boolean; autonomic?: { hr_deep?: number; hr_light?: number; hr_rem?: number; hrv_deep?: number; hrv_light?: number; hrv_rem?: number } | null
   series?: { hr?: number[]; hrv?: number[]; temp?: number[]; motion?: number[]; spo2?: number[] }
 }
 export interface DailyStat { active_kcal?: number; total_kcal?: number; steps?: number; distance_m?: number }
