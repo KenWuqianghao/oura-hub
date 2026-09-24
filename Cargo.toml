@@ -1,0 +1,36 @@
+[package]
+name = "oura-hub"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Always-on health hub: stores pushed Oura ring and Apple Health data, serves it to agents over MCP"
+repository = "https://github.com/KenWuqianghao/oura-hub"
+
+[[bin]]
+name = "oura-hub"
+path = "src/main.rs"
+
+[dependencies]
+# The shared brain (summary JSON contract, agent status document) lives in open_health.
+oura-summary = { git = "https://github.com/KenWuqianghao/open_health", rev = "7421bd93d24074bf768620004ca619c77234d5f3" }
+# The ring store schema and the row replication, from open_oura.
+oura-store = { git = "https://github.com/KenWuqianghao/open_oura", rev = "3618c54f47a988b0886681b8eeee53941e240186" }
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+sha2 = "0.10"
+hex = "0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+oura-protocol = { git = "https://github.com/KenWuqianghao/open_oura", rev = "3618c54f47a988b0886681b8eeee53941e240186" }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+
+[profile.release]
+lto = true
+strip = true
