@@ -17,6 +17,7 @@ Volume=%h/oura-hub-data:/data:Z
 Volume=%h/oura-hub-agent/claude:/root/.claude:Z
 Volume=%h/oura-hub-agent/codex:/root/.codex:Z
 Volume=%h/oura-hub-agent/cursor:/root/.cursor:Z
+Volume=%h/oura-hub-agent/config:/root/.config:Z
 
 [Service]
 Restart=always

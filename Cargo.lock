@@ -573,7 +573,7 @@ name = "oura-analysis"
 version = "0.1.0"
 source = "git+https://github.com/KenWuqianghao/open_oura?rev=7a47ef42144821ca43a31b2e5bfca6a91160999b#7a47ef42144821ca43a31b2e5bfca6a91160999b"
 dependencies = [
- "oura-protocol 0.1.0 (git+https://github.com/KenWuqianghao/open_oura?rev=7a47ef42144821ca43a31b2e5bfca6a91160999b)",
+ "oura-protocol",
  "serde",
  "serde_json",
 ]
@@ -587,8 +587,8 @@ dependencies = [
  "futures-util",
  "hex",
  "http-body-util",
- "oura-protocol 0.1.0 (git+https://github.com/KenWuqianghao/open_oura?rev=3618c54f47a988b0886681b8eeee53941e240186)",
- "oura-store 0.1.0 (git+https://github.com/KenWuqianghao/open_oura?rev=3618c54f47a988b0886681b8eeee53941e240186)",
+ "oura-protocol",
+ "oura-store",
  "oura-summary",
  "rusqlite",
  "rust-embed",
@@ -605,18 +605,6 @@ dependencies = [
 [[package]]
 name = "oura-protocol"
 version = "0.1.0"
-source = "git+https://github.com/KenWuqianghao/open_oura?rev=3618c54f47a988b0886681b8eeee53941e240186#3618c54f47a988b0886681b8eeee53941e240186"
-dependencies = [
- "aes",
- "hex",
- "serde",
- "serde_json",
- "uuid",
-]
-
-[[package]]
-name = "oura-protocol"
-version = "0.1.0"
 source = "git+https://github.com/KenWuqianghao/open_oura?rev=7a47ef42144821ca43a31b2e5bfca6a91160999b#7a47ef42144821ca43a31b2e5bfca6a91160999b"
 dependencies = [
  "aes",
@@ -629,23 +617,10 @@ dependencies = [
 [[package]]
 name = "oura-store"
 version = "0.1.0"
-source = "git+https://github.com/KenWuqianghao/open_oura?rev=3618c54f47a988b0886681b8eeee53941e240186#3618c54f47a988b0886681b8eeee53941e240186"
-dependencies = [
- "hex",
- "oura-protocol 0.1.0 (git+https://github.com/KenWuqianghao/open_oura?rev=3618c54f47a988b0886681b8eeee53941e240186)",
- "rusqlite",
- "serde",
- "serde_json",
- "thiserror",
-]
-
-[[package]]
-name = "oura-store"
-version = "0.1.0"
 source = "git+https://github.com/KenWuqianghao/open_oura?rev=7a47ef42144821ca43a31b2e5bfca6a91160999b#7a47ef42144821ca43a31b2e5bfca6a91160999b"
 dependencies = [
  "hex",
- "oura-protocol 0.1.0 (git+https://github.com/KenWuqianghao/open_oura?rev=7a47ef42144821ca43a31b2e5bfca6a91160999b)",
+ "oura-protocol",
  "rusqlite",
  "serde",
  "serde_json",
@@ -659,8 +634,8 @@ source = "git+https://github.com/KenWuqianghao/open_health?rev=7421bd93d24074bf7
 dependencies = [
  "anyhow",
  "oura-analysis",
- "oura-protocol 0.1.0 (git+https://github.com/KenWuqianghao/open_oura?rev=7a47ef42144821ca43a31b2e5bfca6a91160999b)",
- "oura-store 0.1.0 (git+https://github.com/KenWuqianghao/open_oura?rev=7a47ef42144821ca43a31b2e5bfca6a91160999b)",
+ "oura-protocol",
+ "oura-store",
  "serde_json",
 ]
 

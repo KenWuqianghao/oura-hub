@@ -318,8 +318,10 @@ subscriptions. Supported: Claude Code (`claude`), Codex (`codex`), Cursor
 (`cursor-agent`). The container image installs all three; the hub lists the ones it
 finds at `GET /api/agent/providers`.
 
-Sign in once on the hub, inside the container, and keep the login directories on
-volumes (the compose file and the Quadlet unit do):
+Sign in once on the hub, inside the container. The compose file and the Quadlet unit
+keep the login directories on volumes: `/root/.claude`, `/root/.codex`, `/root/.cursor`
+and `/root/.config` (cursor-agent writes its login there). Without the last one the
+Cursor login is lost when the image is rebuilt.
 
 ```bash
 podman exec -it oura-hub claude

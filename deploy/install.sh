@@ -52,7 +52,7 @@ fi
 say "container engine: $ENGINE"
 
 # ── 2. token ──
-mkdir -p "$(dirname "$ENV_FILE")" "$DATA" "$AGENT/claude" "$AGENT/codex" "$AGENT/cursor"
+mkdir -p "$(dirname "$ENV_FILE")" "$DATA" "$AGENT/claude" "$AGENT/codex" "$AGENT/cursor" "$AGENT/config"
 if [ -f "$ENV_FILE" ] && grep -q '^OURA_HUB_TOKEN=' "$ENV_FILE"; then
   say "keeping the token in $ENV_FILE"
 else
@@ -111,6 +111,7 @@ else
   z=""; [ "$ENGINE" = podman ] && z=":Z"
   args=(run -d --name "$NAME" --restart unless-stopped --env-file "$ENV_FILE" -e RUST_LOG=info -v "$DATA:/data$z")
   for tool in claude codex cursor; do args+=(-v "$AGENT/$tool:/root/.$tool$z"); done
+  args+=(-v "$AGENT/config:/root/.config$z")
   for p in "${PUBLISH[@]}"; do args+=(-p "$p"); done
   "$ENGINE" "${args[@]}" "$IMAGE" >/dev/null
   say "running as the $ENGINE container $NAME (restarts after a reboot)"

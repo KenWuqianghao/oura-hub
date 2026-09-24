@@ -15,9 +15,11 @@ services:
       - agent-claude:/root/.claude
       - agent-codex:/root/.codex
       - agent-cursor:/root/.cursor
+      - agent-config:/root/.config
 
 volumes:
   hub-data:
   agent-claude:
   agent-codex:
   agent-cursor:
+  agent-config:

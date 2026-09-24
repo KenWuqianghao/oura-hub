@@ -14,7 +14,7 @@ path = "src/main.rs"
 # The shared brain (summary JSON contract, agent status document) lives in open_health.
 oura-summary = { git = "https://github.com/KenWuqianghao/open_health", rev = "7421bd93d24074bf768620004ca619c77234d5f3" }
 # The ring store schema and the row replication, from open_oura.
-oura-store = { git = "https://github.com/KenWuqianghao/open_oura", rev = "3618c54f47a988b0886681b8eeee53941e240186" }
+oura-store = { git = "https://github.com/KenWuqianghao/open_oura", rev = "7a47ef42144821ca43a31b2e5bfca6a91160999b" }
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json", "query"] }
 # sse needs the "tokio" feature above and the response types
 
@@ -33,7 +33,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rust-embed = { version = "8", features = ["include-exclude", "mime-guess"] }
 
 [dev-dependencies]
-oura-protocol = { git = "https://github.com/KenWuqianghao/open_oura", rev = "3618c54f47a988b0886681b8eeee53941e240186" }
+oura-protocol = { git = "https://github.com/KenWuqianghao/open_oura", rev = "7a47ef42144821ca43a31b2e5bfca6a91160999b" }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
 

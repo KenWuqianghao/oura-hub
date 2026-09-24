@@ -18,7 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 #   podman exec -it oura-hub claude        (follow the link)
 #   podman exec -it oura-hub codex login --device-auth
 #   podman exec -it oura-hub cursor-agent login
-# and keep /root/.claude, /root/.codex, /root/.cursor on a volume (see docker-compose.yml).
+# and keep /root/.claude, /root/.codex, /root/.cursor and /root/.config on volumes
+# (see docker-compose.yml): cursor-agent writes its login under /root/.config.
 ENV HOME=/root PATH=/root/.local/bin:$PATH
 RUN curl -fsSL https://claude.ai/install.sh | bash || echo "claude install skipped"
 RUN curl -fsS https://cursor.com/install | bash || echo "cursor-agent install skipped"
