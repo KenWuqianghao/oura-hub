@@ -147,10 +147,16 @@ impl Store {
 
     /// Samples of one kind (or all kinds) that end at or after `since_unix`, newest first.
     pub fn health_rows(&self, kind: Option<&str>, since_unix: f64, limit: usize) -> Result<Vec<HealthSample>> {
+        self.health_rows_between(kind, since_unix, None, limit)
+    }
+
+    /// Samples that end inside `[since_unix, until_unix]` (open-ended without `until`), newest first.
+    pub fn health_rows_between(&self, kind: Option<&str>, since_unix: f64, until_unix: Option<f64>, limit: usize) -> Result<Vec<HealthSample>> {
         let conn = self.conn.lock().unwrap();
+        let until = until_unix.unwrap_or(f64::MAX);
         let sql = format!(
             "SELECT uuid, kind, start_unix, end_unix, value, unit, category, source_bundle, source_name, device, metadata
-             FROM health_samples WHERE end_unix >= ?1 {} ORDER BY end_unix DESC LIMIT ?2",
+             FROM health_samples WHERE end_unix >= ?1 AND end_unix <= ?4 {} ORDER BY end_unix DESC LIMIT ?2",
             if kind.is_some() { "AND kind = ?3" } else { "" }
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -164,8 +170,8 @@ impl Store {
             })
         };
         let rows = match kind {
-            Some(k) => stmt.query_map(params![since_unix, limit as i64, k], map)?.collect::<std::result::Result<Vec<_>, _>>()?,
-            None => stmt.query_map(params![since_unix, limit as i64], map)?.collect::<std::result::Result<Vec<_>, _>>()?,
+            Some(k) => stmt.query_map(params![since_unix, limit as i64, k, until], map)?.collect::<std::result::Result<Vec<_>, _>>()?,
+            None => stmt.query_map(params![since_unix, limit as i64, "", until], map)?.collect::<std::result::Result<Vec<_>, _>>()?,
         };
         Ok(rows)
     }

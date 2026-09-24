@@ -147,3 +147,16 @@ export function hourTicks(startHM: string | undefined, hours: number | null | un
 }
 export const HOURS_OF_DAY: [number, string][] = [[0, '00:00'], [0.25, '06:00'], [0.5, '12:00'], [0.75, '18:00'], [1, '24:00']]
 export function scoreBasisLabel(basis?: string): string { return basis ? basis.replace(/ — see .*$/, '') : '' }
+
+/** Local midnight (ms) of a "yyyy-mm-dd". */
+export function dayStartMs(ymd: string): number { return (parseYmd(ymd) ?? new Date()).getTime() }
+/** "HH:MM" on a calendar day → ms; `nextDayIfBefore` rolls to the next day when the time is earlier than that (e.g. an end after midnight). */
+export function hmOnDay(ymd: string, hm: string, addDays = 0): number {
+  const [h, m] = hm.split(':').map(Number)
+  const d = parseYmd(ymd) ?? new Date(); d.setDate(d.getDate() + addDays); d.setHours(h, m, 0, 0); return d.getTime()
+}
+export const bandOf = (score: number) => score >= 85 ? 'good' : score >= 70 ? 'neutral' : score >= 60 ? 'warn' : 'alert'
+export function statusPillClass(state?: string) {
+  return { none: 'good', low: 'neutral', moderate: 'warn', high: 'alert', NO_SIGNS: 'good', MINOR_SIGNS: 'warn', MAJOR_SIGNS: 'alert' }[state ?? ''] ?? 'neutral'
+}
+export const hoursText = (h: number) => hoursMinutes(h).map(p => p.join(' ')).join(' ')
