@@ -130,6 +130,13 @@ impl AgentConfig {
         let servers = json!({ "mcpServers": { "health": { "type": "http", "url": self.mcp_url } } });
         write_private(&self.workdir.join("mcp-claude.json"), &serde_json::to_string_pretty(&servers)?)?;
         write_private(&self.workdir.join(".cursor/mcp.json"), &serde_json::to_string_pretty(&json!({ "mcpServers": { "health": { "url": self.mcp_url } } }))?)?;
+        // Project permissions for cursor-agent: the health tools run without a prompt;
+        // shell, file writes and web fetches are denied (deny wins over allow).
+        let perms = json!({ "permissions": {
+            "allow": ["Mcp(health:*)"],
+            "deny": ["Shell(*)", "Write(**)", "WebFetch(*)"],
+        } });
+        write_private(&self.workdir.join(".cursor/cli.json"), &serde_json::to_string_pretty(&perms)?)?;
         Ok(())
     }
 
@@ -350,6 +357,9 @@ mod tests {
         let cfg = AgentConfig::new(dir.clone(), "http://127.0.0.1:1/mcp/tok".into());
         assert!(dir.join("mcp-claude.json").is_file());
         assert!(dir.join(".cursor/mcp.json").is_file());
+        let perms: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join(".cursor/cli.json")).unwrap()).unwrap();
+        assert_eq!(perms["permissions"]["allow"][0], "Mcp(health:*)");
+        assert!(perms["permissions"]["deny"].as_array().unwrap().iter().any(|d| d == "Shell(*)"));
         let text = std::fs::read_to_string(dir.join("mcp-claude.json")).unwrap();
         assert!(text.contains("http://127.0.0.1:1/mcp/tok"));
         // a provider that is not installed has no command
