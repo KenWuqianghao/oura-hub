@@ -7,10 +7,12 @@
   import Trends from './pages/Trends.svelte'
   import Data from './pages/Data.svelte'
   import Ask from './pages/Ask.svelte'
-  import { hub, check, load, logout } from './lib/store.svelte'
+  import Connect from './pages/Connect.svelte'
+  import { hub, check, load, logout, adoptHashToken } from './lib/store.svelte'
   import { ago } from './lib/fmt'
 
-  // hash routes: #/, #/sleep, #/trends/<metric>, #/ask, #/data
+  // hash routes: #/, #/sleep, #/trends/<metric>, #/ask, #/data, #/connect
+  adoptHashToken()
   let route = $state(location.hash.replace(/^#\/?/, ''))
   const go = (r: string) => { location.hash = '#/' + r }
   onMount(() => {
@@ -29,6 +31,7 @@
     { id: 'trends', title: 'Trends' },
     { id: 'ask', title: 'Ask' },
     { id: 'data', title: 'Data' },
+    { id: 'connect', title: 'Connect' },
   ]
 </script>
 
@@ -50,12 +53,13 @@
       </div>
     </div>
   </header>
-  {#if hub.error && !hub.summary}
+  {#if tab === 'connect'}<Connect />
+  {:else if hub.error && !hub.summary}
     <div class="wrap"><div class="error">{hub.error}</div></div>
   {:else if !hub.summary && hub.loading}
     <div class="wrap"><div class="skeleton" style="height: 24px; width: 40%"></div><div class="skeleton" style="height: 392px; margin-top: 24px"></div></div>
   {:else if !hub.summary}
-    <div class="wrap"><h1>Nothing here yet</h1><p class="sub">The hub is up, but no summary has been pushed. Open the app on your phone, go to Settings → Health hub, and tap Send Now.</p></div>
+    <div class="wrap"><h1>Nothing here yet</h1><p class="sub">The hub is up, but no summary has been pushed. Open <a href="#/connect">Connect</a> and scan the code with your iPhone, or tap Send Now in the app's Health hub settings.</p></div>
   {:else if tab === 'sleep'}<Sleep />
   {:else if tab === 'trends'}<Trends metric={route.split('/')[1] || 'hrv_ms'} />
   {:else if tab === 'ask'}<Ask />
