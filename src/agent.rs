@@ -156,7 +156,7 @@ impl AgentConfig {
                     .arg(format!("{RULES}\n\nQuestion:\n{prompt}"));
             }
             Provider::Cursor => {
-                cmd.args(["-p", "--output-format", "stream-json", "--approve-mcps"]);
+                cmd.args(["-p", "--output-format", "stream-json", "--approve-mcps", "--trust"]);
                 if let Some(s) = session { cmd.args(["--resume", s]); }
                 cmd.arg(format!("{RULES}\n\nQuestion:\n{prompt}"));
             }
