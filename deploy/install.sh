@@ -27,6 +27,9 @@ done
 cd "$(dirname "$0")/.."
 REPO="$PWD"
 DATA="$HOME/oura-hub-data"
+# Login folders of the agent CLIs behind the Ask page. The Quadlet unit mounts them,
+# and podman refuses to start a container whose bind-mount source is missing.
+AGENT="$HOME/oura-hub-agent"
 ENV_FILE="$HOME/.config/oura-hub.env"
 IMAGE="localhost/oura-hub:latest"
 NAME="oura-hub"
@@ -49,7 +52,7 @@ fi
 say "container engine: $ENGINE"
 
 # ── 2. token ──
-mkdir -p "$(dirname "$ENV_FILE")" "$DATA"
+mkdir -p "$(dirname "$ENV_FILE")" "$DATA" "$AGENT/claude" "$AGENT/codex" "$AGENT/cursor"
 if [ -f "$ENV_FILE" ] && grep -q '^OURA_HUB_TOKEN=' "$ENV_FILE"; then
   say "keeping the token in $ENV_FILE"
 else
@@ -105,8 +108,9 @@ if [ "$ENGINE" = podman ] && command -v systemctl >/dev/null 2>&1 && systemctl -
 else
   # Docker (or podman without systemd): the engine restarts the container.
   "$ENGINE" rm -f "$NAME" >/dev/null 2>&1 || true
-  args=(run -d --name "$NAME" --restart unless-stopped --env-file "$ENV_FILE" -e RUST_LOG=info -v "$DATA:/data")
-  [ "$ENGINE" = podman ] && args[${#args[@]}-1]="$DATA:/data:Z"
+  z=""; [ "$ENGINE" = podman ] && z=":Z"
+  args=(run -d --name "$NAME" --restart unless-stopped --env-file "$ENV_FILE" -e RUST_LOG=info -v "$DATA:/data$z")
+  for tool in claude codex cursor; do args+=(-v "$AGENT/$tool:/root/.$tool$z"); done
   for p in "${PUBLISH[@]}"; do args+=(-p "$p"); done
   "$ENGINE" "${args[@]}" "$IMAGE" >/dev/null
   say "running as the $ENGINE container $NAME (restarts after a reboot)"
