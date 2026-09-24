@@ -1,41 +1,42 @@
 # Health hub: an always-on MCP endpoint for your health data
 
-The hub is a small server that runs 24 hours a day on a home server or a rented
-VPS. Clients push two things to it:
+The hub is a small server that runs all day on a home server, a Steam Deck, a Mac,
+or a rented VPS. The iPhone app pushes two things to it after every ring sync:
 
-1. **The health summary** (`build_summary` JSON). Agents (Grok Bot, Claude Code, any
-   MCP client) read it over MCP.
+1. **The health summary** (`build_summary` JSON). Agents (Claude Code, Cursor, any
+   MCP client) read it over MCP, and the web app shows it.
 2. **The raw ring rows** (events, readings, device rows). The hub keeps them in its
    own `oura.db` with the `oura-store` schema. This is the backup: every report the
    phone or the desktop can run also runs on the hub's file.
 
 Your Mac and your phone can be off. The hub does not talk to the ring. It stores
-what a client pushed, and it serves that. This keeps the ring's single Bluetooth
-link with the client that syncs it.
+what a client pushed and serves it. This keeps the ring's single Bluetooth link with
+the phone that syncs it.
 
 ## Parts
 
 | Part | Where | Job |
 | --- | --- | --- |
-| `oura-hub` | this repo | HTTP server: `/ingest/summary`, `/ingest/events`, `/ingest/health`, `/export/events`, `/mcp`, `/health` |
+| `oura-hub` | this repo | HTTP server: `/ingest/summary`, `/ingest/events`, `/ingest/health`, `/export/events`, `/mcp`, `/health`, and the web app |
 | `oura-summary::agent` | open_health `crates/oura-summary/src/agent.rs` | Turns the full summary into the short documents the tools return |
 | `oura-store::replication` | open_oura | `export_after` / `import_batch`: raw rows in pages, idempotent |
 | iOS `HubPush.swift` | open_health `apps/ios/OuraApp` | Pushes the summary and the new rows after each sync |
 | iOS `HealthReader.swift` | open_health `apps/ios/OuraApp` | Reads Apple Health samples with anchored queries and pushes the changes |
-| `oura push` | open_health `crates/oura-cli` | Builds the summary on the Mac and pushes it |
+| `oura push` | open_health `crates/oura-cli` | Builds the summary on a Mac and pushes it |
 
 ## Quick start: one command
 
-On the server (a Linux box, a Steam Deck, or a Mac), with Docker or podman and
-Tailscale installed and signed in:
+On the server, with Docker or podman installed and
+[Tailscale](https://tailscale.com/download) signed in:
 
 ```bash
 git clone https://github.com/KenWuqianghao/oura-hub.git && cd oura-hub && ./deploy/install.sh
 ```
 
 The script makes a token once (`~/.config/oura-hub.env`), builds the image, runs it
-as a service that comes back after a reboot, publishes it on loopback and on the
-Tailscale address, and prints three lines:
+as a service that comes back after a reboot (a Quadlet unit under podman + systemd,
+a restart policy under Docker), publishes it on loopback and on the Tailscale
+address, and prints three lines:
 
 - **Web app**: `http://<server>.<tailnet>.ts.net:8787`
 - **Sign in**: the same address with `#token=<token>`. Open it once in a browser; it
@@ -43,43 +44,45 @@ Tailscale address, and prints three lines:
 - **MCP address**: `…/mcp/<token>` for an agent.
 
 Add `--public` for a public `https://<server>.<tailnet>.ts.net` address through
-Tailscale Funnel (a hosted agent needs it). Run the script again to update; it keeps
-the token and the data (`~/oura-hub-data`).
+Tailscale Funnel (a hosted agent needs it). Run the script again to update: it keeps
+the token and the data in `~/oura-hub-data` (`hub.db`, `oura.db`). To back up, copy
+that folder. To change the token, delete `~/.config/oura-hub.env` and run the script
+again.
 
 **Connect page.** It shows a QR code with `openoura://hub?url=<hub>&token=<token>`.
 Scan it with the iPhone Camera, tap **Open in Open Oura**, then **Connect**. The app
 asks first, because any web page can make such a link. The page also gives the
-Claude Code command and the `mcpServers` JSON with copy buttons. The token is hidden
-until you tap **Show token**.
+Claude Code command and the `mcpServers` JSON with copy buttons. The token stays
+hidden until you tap **Show token**.
 
 ## Run the hub by hand
 
-Make a token. Keep it secret. The hub refuses tokens shorter than 16 characters.
+Make a token and keep it secret. The hub refuses tokens shorter than 16 characters.
 
 ```bash
 openssl rand -hex 24
 ```
 
-Run with Docker Compose from the repo root:
+With Docker Compose, from the repo root (it listens on loopback only; add a port
+line for your Tailscale address, or put a proxy in front, see below):
 
 ```bash
 OURA_HUB_TOKEN=<token> docker compose up -d --build
 ```
 
-Or run the binary:
+Or run the binary (build the web app first, see the README):
 
 ```bash
 OURA_HUB_TOKEN=<token> OURA_HUB_DB=/var/lib/oura/hub.db cargo run --release
 ```
 
-Environment:
-
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `OURA_HUB_TOKEN` | required | Bearer token for pushes and for MCP |
+| `OURA_HUB_TOKEN` | required | Bearer token for pushes, the web app, and MCP |
 | `OURA_HUB_BIND` | `0.0.0.0:8787` | Listen address |
-| `OURA_HUB_DB` | `hub.db` | SQLite file for the summary snapshots |
+| `OURA_HUB_DB` | `hub.db` | SQLite file for the summary snapshots and Apple Health samples |
 | `OURA_HUB_RING_DB` | `oura.db` next to `OURA_HUB_DB` | The ring replica (`oura-store` schema) |
+| `OURA_HUB_AGENT_DIR` | `agent/` next to `OURA_HUB_DB` | MCP config files for the Ask page's agent CLIs |
 | `RUST_LOG` | `info` | Log filter |
 
 Check it:
@@ -88,126 +91,57 @@ Check it:
 curl -s http://127.0.0.1:8787/health
 ```
 
-## Setup without Tailscale Serve (plain HTTP inside the tailnet)
+## Reach the hub from your phone and your agent
 
-Tailscale traffic is already encrypted end to end, so the hub can speak plain HTTP
-inside the tailnet. The iOS app allows plain HTTP for `*.ts.net` names only
-(`NSAppTransportSecurity` in `Info.plist`). This needs no tailnet setting and no
-certificate.
+The hub speaks plain HTTP. Never expose port 8787 to the internet as it is. The
+iPhone refuses plain HTTP to a remote host (App Transport Security), except for
+`*.ts.net` names. Pick one:
 
-1. On the server, bind the container to the Tailscale address as well as loopback.
-   Find it with `tailscale ip -4` (for example `100.112.25.101`), then run the
-   container with `-p 127.0.0.1:8787:8787 -p 100.112.25.101:8787:8787`.
-2. The hub URL is `http://<server>.<tailnet>.ts.net:8787`. Print the name with
-   `tailscale status --json | grep DNSName`.
-3. Use that URL in the app and in Grok Bot: `http://<server>.<tailnet>.ts.net:8787/mcp/<token>`.
+| Option | Who can reach it | Address | Setup |
+| --- | --- | --- | --- |
+| **Tailscale, plain HTTP** (the install script's default) | Your devices on the tailnet | `http://<server>.<tailnet>.ts.net:8787` | None. Tailscale already encrypts the traffic. |
+| **Tailscale Serve** | Your devices on the tailnet | `https://<server>.<tailnet>.ts.net` | `tailscale serve --bg 8787`. Turn on HTTPS certificates once in the Tailscale admin console (DNS → HTTPS Certificates). |
+| **Tailscale Funnel** (`--public`) | The whole internet | `https://<server>.<tailnet>.ts.net` | `tailscale funnel --bg 8787`. Needed for a hosted agent (claude.ai connectors, cloud runtimes). |
+| **Caddy or another proxy** | The whole internet | `https://hub.example.com` | Your own domain, see below. |
 
-### Steam Deck (SteamOS)
+On a public address only the token protects your data: keep it secret. `GET /health`
+without the token answers only `{"ok":true}`.
 
-SteamOS is immutable and refuses the Docker install script. It ships podman, which
-builds the same Dockerfile:
-
-```bash
-podman build -t oura-hub .
-```
-
-```bash
-mkdir -p ~/oura-hub-data && podman run -d --name oura-hub --restart unless-stopped -p 127.0.0.1:8787:8787 -p "$(tailscale ip -4)":8787:8787 -e OURA_HUB_TOKEN="$(cat ~/.hub-token)" -e RUST_LOG=info -v ~/oura-hub-data:/data:Z oura-hub
-```
-
-```bash
-loginctl enable-linger deck && systemctl --user enable --now podman-restart.service
-```
-
-Run these as the `deck` user, not root. Set the Deck's sleep timers to Never and
-keep it on the charger. The community `deck-tailscale` script puts the binaries in
-`/opt/tailscale/`, so call `/opt/tailscale/tailscale` with the full path.
-
-## A public address for an agent that is not on the tailnet
-
-A hosted agent (Grok Bot's cloud runtime, for example) cannot resolve tailnet names.
-Put a tunnel in front of the hub. `GET /health` without the token answers only
-`{"ok":true}`; everything else needs the token, which sits in the MCP URL path.
-
-Quick tunnel, no account, a random `trycloudflare.com` name that changes on restart:
-
-```bash
-podman run -d --name oura-tunnel --restart unless-stopped --network=host docker.io/cloudflare/cloudflared:latest tunnel --no-autoupdate --url http://127.0.0.1:8787
-```
-
-```bash
-podman logs oura-tunnel 2>&1 | grep -o "https://[a-z0-9-]*\.trycloudflare\.com" | head -1
-```
-
-For a name that stays the same, use **Tailscale Funnel**: enable it once in the admin
-console (the `tailscale funnel` command prints the link), then on the server:
-
-```bash
-tailscale funnel --bg 8787
-```
-
-The hub is then `https://<server>.<tailnet>.ts.net` for the whole internet, with a
-certificate from Tailscale. Only the token protects it, so keep the token secret and
-rotate it if it leaks. A named Cloudflare tunnel on your own domain works as well.
-
-## Setup on an Ubuntu server, reachable from anywhere
-
-This is the recommended setup: a home server in one place, the phone and the agent
-in another. Tailscale joins them in one private network with no open ports. Its
-`serve` command adds HTTPS with a real certificate, which the iPhone requires.
-
-On the server:
-
-```bash
-curl -fsSL https://tailscale.com/install.sh | sh
-sudo tailscale up
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker "$USER" && newgrp docker
-git clone https://github.com/KenWuqianghao/oura-hub.git
-cd oura-hub
-openssl rand -hex 24 > ~/.hub-token
-OURA_HUB_TOKEN=$(cat ~/.hub-token) docker compose up -d --build
-curl -s http://127.0.0.1:8787/health
-sudo tailscale serve --bg 8787
-tailscale status
-```
-
-`tailscale serve --bg 8787` publishes the hub as `https://<server>.<tailnet>.ts.net`
-to devices on your tailnet only. Print the exact name with `tailscale serve status`.
-Enable HTTPS certificates once in the Tailscale admin console (DNS → HTTPS
-Certificates) if `serve` asks for it.
-
-On the iPhone: install Tailscale from the App Store, sign in to the same tailnet,
-turn it on. In Open Oura, Settings → Health hub: switch on, URL
-`https://<server>.<tailnet>.ts.net`, the token, then Send Now.
-
-On the Mac (Grok Bot): install Tailscale, sign in. In Grok Bot's MCP settings add
-`https://<server>.<tailnet>.ts.net/mcp/<token>`.
-
-Updates: `git pull && OURA_HUB_TOKEN=$(cat ~/.hub-token) docker compose up -d --build`.
-With podman, `deploy/oura-hub.container` is a systemd Quadlet unit that keeps the
-container up across reboots: `podman build -t oura-hub .`, copy the unit to
-`~/.config/containers/systemd/`, then `systemctl --user daemon-reload && systemctl --user restart oura-hub.service`.
-Backup: the volume `hub-data` holds `hub.db` and `oura.db`; copy them with
-`docker compose cp oura-hub:/data ./backup`.
-
-## Put TLS in front
-
-The hub speaks plain HTTP. Do not expose port 8787 to the internet as is. The
-iPhone refuses plain HTTP to a remote host (App Transport Security) except for
-`*.ts.net` names. Use one of these:
-
-- **Plain HTTP inside the tailnet** (above). No tailnet setting, no certificate.
-- **Tailscale serve**. Adds HTTPS with a certificate; needs Serve enabled on the
-  tailnet in the admin console.
-- **Caddy** (or any reverse proxy) with a real domain, when the hub must be reachable
-  without Tailscale. Caddy gets a certificate for you. Example `Caddyfile`:
+Caddy gets the certificate for you. A `Caddyfile`:
 
 ```text
 hub.example.com {
     reverse_proxy 127.0.0.1:8787
 }
 ```
+
+For a quick test without an account, a Cloudflare quick tunnel gives a random
+`trycloudflare.com` name that changes on every restart:
+
+```bash
+docker run -d --name oura-tunnel --restart unless-stopped --network=host docker.io/cloudflare/cloudflared:latest tunnel --no-autoupdate --url http://127.0.0.1:8787
+```
+
+On the iPhone and on the agent's computer, install Tailscale and sign in to the same
+tailnet, unless you use a public address.
+
+## Device notes
+
+**Steam Deck (SteamOS).** SteamOS is immutable and refuses the Docker install script,
+but it ships podman, which the install script uses. Run it as the `deck` user, not
+root. The community `deck-tailscale` install puts the binary in
+`/opt/tailscale/tailscale`; the script finds it there. Set the sleep timers to Never
+(Settings → Power) and keep the Deck on its charger, or the hub goes offline at night.
+
+**Ubuntu or Debian server.** Install Tailscale and Docker, then run the quick start:
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up
+curl -fsSL https://get.docker.com | sh && sudo usermod -aG docker "$USER" && newgrp docker
+```
+
+**Mac.** Docker Desktop and the Tailscale app are enough. The hub stops when the Mac
+sleeps, so a Mac works best as a test machine.
 
 ## Push from the iPhone
 
@@ -303,10 +237,11 @@ oura dashboard --db /data/oura.db
 ## The web UI
 
 Open the hub address in a browser. Sign in with the token; it stays in that browser.
-The pages follow the iOS app: **Summary** (scores, last night, activity, vitals with
-sparklines, Apple Watch, recovery, cardiovascular, ring), **Sleep** (every night with
-its hypnogram and metrics, plus the Watch's last sleep), **Trends** (one ring or Watch
-metric per day over 14 to 180 days), and **Data** (what the hub holds). The UI reads
+The pages: **Today** (the day on one timeline, last night, activity, vitals, the
+Apple Watch), **Sleep** (every night with its hypnogram and the heart rate, HRV,
+temperature, blood oxygen, and movement across it), **Trends** (one ring or Watch
+metric per day), **Ask** (see below), **Data** (what the hub holds), and **Connect**
+(the QR code for the iPhone and the MCP settings). The UI reads
 `GET /api/summary` (the latest snapshot) and `POST /api/tool/<name>` (the MCP tools)
 with the bearer token. It is built from `web/` and embedded in the binary.
 
@@ -353,7 +288,7 @@ The MCP endpoint is Streamable HTTP with JSON replies. Two ways to authenticate:
 - token in the path: `POST https://hub.example.com/mcp/<token>`
 - bearer header: `POST https://hub.example.com/mcp` with `Authorization: Bearer <token>`
 
-Grok Bot takes only a URL per server, so use the path form in its `mcpServers`:
+Some clients accept only a URL per server. Use the path form in their `mcpServers`:
 
 ```json
 {
@@ -402,6 +337,6 @@ Give the agent a daily trigger and a prompt like this:
 > Call `get_status_now`. If `ring_last_sync_age_h` is above 12, say the data is old.
 > Then plan my day: training load, when to stop caffeine, and a bedtime. Keep it short.
 
-## Next steps
+## Roadmap
 
 1. The hub builds the summary from its own replica when no summary was pushed.
