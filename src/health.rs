@@ -115,7 +115,7 @@ fn day_json(rows: &[HealthSample], ymd: &str, tz_s: i64) -> Value {
 const SLEEP_SESSION_GAP_S: f64 = 3.0 * 3600.0;
 
 /// Split one source's sleep rows (any order) into sessions and return the latest.
-fn latest_session<'a>(mut rs: Vec<&'a HealthSample>) -> Vec<&'a HealthSample> {
+fn latest_session(mut rs: Vec<&HealthSample>) -> Vec<&HealthSample> {
     rs.sort_by(|a, b| a.start_unix.total_cmp(&b.start_unix));
     let mut sessions: Vec<Vec<&HealthSample>> = Vec::new();
     let mut session_end = f64::NEG_INFINITY;
