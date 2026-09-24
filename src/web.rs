@@ -4,11 +4,19 @@
 
 use std::sync::Arc;
 
+use std::convert::Infallible;
+
 use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{header, HeaderMap, HeaderValue, StatusCode};
+use axum::response::sse::{Event as SseEvent, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
+use futures_util::stream::Stream;
+use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::StreamExt;
+
+use crate::agent::{Event, Provider};
 use rust_embed::RustEmbed;
 use serde_json::{json, Value};
 
@@ -99,4 +107,44 @@ pub async fn tool(State(st): State<Arc<AppState>>, headers: HeaderMap, Path(name
         Ok(v) => Json(v).into_response(),
         Err(text) => (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": text }))).into_response(),
     }
+}
+
+/// Which agent CLIs the hub can run.
+pub async fn agent_providers(State(st): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if !authed(&st, &headers) {
+        return unauthorized();
+    }
+    Json(json!({ "providers": st.agent.providers, "mcp_url_set": !st.agent.mcp_url.is_empty() })).into_response()
+}
+
+#[derive(serde::Deserialize)]
+pub struct AskBody {
+    provider: String,
+    prompt: String,
+    #[serde(default)]
+    session: Option<String>,
+}
+
+/// Ask the agent. The reply is a server-sent event stream of `agent::Event` JSON.
+pub async fn agent_ask(State(st): State<Arc<AppState>>, headers: HeaderMap, body: Bytes) -> Response {
+    if !authed(&st, &headers) {
+        return unauthorized();
+    }
+    let req: AskBody = match serde_json::from_slice(&body) {
+        Ok(b) => b,
+        Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "error": format!("invalid JSON: {e}") }))).into_response(),
+    };
+    let Some(provider) = Provider::parse(&req.provider) else {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": format!("unknown provider {:?}", req.provider) }))).into_response();
+    };
+    if req.prompt.trim().is_empty() {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "empty prompt" }))).into_response();
+    }
+    let (tx, rx) = tokio::sync::mpsc::channel::<Event>(64);
+    let cfg = st.agent.clone();
+    tokio::spawn(async move { cfg.ask(provider, req.prompt, req.session, tx).await; });
+    let stream: std::pin::Pin<Box<dyn Stream<Item = Result<SseEvent, Infallible>> + Send>> = Box::pin(
+        ReceiverStream::new(rx).map(|ev| Ok(SseEvent::default().json_data(ev).unwrap_or_else(|_| SseEvent::default().data("{}")))),
+    );
+    Sse::new(stream).keep_alive(KeepAlive::default()).into_response()
 }

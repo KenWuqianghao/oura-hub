@@ -11,6 +11,13 @@ services:
       RUST_LOG: info
     volumes:
       - hub-data:/data
+      # the agent CLIs' logins, so they survive a rebuild
+      - agent-claude:/root/.claude
+      - agent-codex:/root/.codex
+      - agent-cursor:/root/.cursor
 
 volumes:
   hub-data:
+  agent-claude:
+  agent-codex:
+  agent-cursor:

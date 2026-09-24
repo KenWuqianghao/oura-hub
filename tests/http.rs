@@ -282,3 +282,21 @@ async fn web_api_needs_the_token_and_reuses_the_tools() {
     let res = app.clone().oneshot(Request::get("/assets/missing.js").body(Body::empty()).unwrap()).await.unwrap();
     assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
+
+#[tokio::test]
+async fn agent_routes_need_the_token_and_validate_input() {
+    let app = app();
+    let (s, _) = send(&app, Request::get("/api/agent/providers").body(Body::empty()).unwrap()).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let (s, r) = send(&app, get_auth("/api/agent/providers")).await;
+    assert_eq!(s, StatusCode::OK);
+    let ids: Vec<&str> = r["providers"].as_array().unwrap().iter().map(|p| p["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["claude", "codex", "cursor"]);
+    let (s, r) = send(&app, post("/api/agent/ask", Some(TOKEN), json!({ "provider": "gpt", "prompt": "hi" }))).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    assert!(r["error"].as_str().unwrap().contains("unknown provider"));
+    let (s, _) = send(&app, post("/api/agent/ask", Some(TOKEN), json!({ "provider": "claude", "prompt": "  " }))).await;
+    assert_eq!(s, StatusCode::BAD_REQUEST);
+    let (s, _) = send(&app, post("/api/agent/ask", None, json!({ "provider": "claude", "prompt": "hi" }))).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+}

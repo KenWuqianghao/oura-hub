@@ -22,7 +22,15 @@ async fn main() -> Result<()> {
 
     let store = Store::open(&db)?;
     let ring = oura_store::Store::open(&ring_db).with_context(|| format!("opening ring replica {}", ring_db.display()))?;
-    let state = oura_hub::app_state(store, ring, token);
+    // The built-in agent runs the user's own CLIs with this hub's MCP endpoint over loopback.
+    let port = bind.rsplit(':').next().and_then(|p| p.parse::<u16>().ok()).unwrap_or(8787);
+    let mcp_url = std::env::var("OURA_HUB_MCP_URL").unwrap_or_else(|_| format!("http://127.0.0.1:{port}/mcp/{token}"));
+    let agent_dir = std::env::var("OURA_HUB_AGENT_DIR").map(PathBuf::from).unwrap_or_else(|_| db.with_file_name("agent"));
+    let agent = oura_hub::agent::AgentConfig::new(agent_dir, mcp_url);
+    for p in &agent.providers {
+        tracing::info!("agent {}: {}", p.id, p.path.as_deref().unwrap_or("not installed"));
+    }
+    let state = oura_hub::app_state_with_agent(store, ring, token, agent);
     let app = oura_hub::router(state);
 
     let listener = tokio::net::TcpListener::bind(&bind).await.with_context(|| format!("binding {bind}"))?;

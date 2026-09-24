@@ -281,6 +281,40 @@ metric per day over 14 to 180 days), and **Data** (what the hub holds). The UI r
 `GET /api/summary` (the latest snapshot) and `POST /api/tool/<name>` (the MCP tools)
 with the bearer token. It is built from `web/` and embedded in the binary.
 
+## The built-in agent (Ask)
+
+The **Ask** page runs one of your own agent CLIs on the hub, with the hub's MCP
+server attached, and streams the answer. No API key: the CLIs use your
+subscriptions. Supported: Claude Code (`claude`), Codex (`codex`), Cursor
+(`cursor-agent`). The container image installs all three; the hub lists the ones it
+finds at `GET /api/agent/providers`.
+
+Sign in once on the hub, inside the container, and keep the login directories on
+volumes (the compose file and the Quadlet unit do):
+
+```bash
+podman exec -it oura-hub claude
+```
+
+```bash
+podman exec -it oura-hub codex login --device-auth
+```
+
+```bash
+podman exec -it oura-hub cursor-agent login
+```
+
+Each CLI gets a fixed instruction block (the health tools, the freshness rule, the
+baseline rule, the "not a doctor" rule) ahead of your question, and only the hub's
+tools: no shell, no file access. Follow-up questions resume the same conversation
+(`--resume` for Claude Code and Cursor, `exec resume` for Codex); **New
+conversation** starts over. `POST /api/agent/ask` `{provider, prompt, session}`
+answers with server-sent events (`session`, `text`, `tool`, `tool_result`,
+`thinking`, `done`, `error`).
+
+Environment: `OURA_HUB_AGENT_DIR` (default `agent/` next to `hub.db`) holds the MCP
+config files the CLIs read; `OURA_HUB_MCP_URL` overrides the loopback MCP address.
+
 ## Connect an agent over MCP
 
 The MCP endpoint is Streamable HTTP with JSON replies. Two ways to authenticate:

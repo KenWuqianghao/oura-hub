@@ -1,6 +1,6 @@
-# Podman Quadlet unit. Copy to ~/.config/containers/systemd/ and run
-# `systemctl --user daemon-reload && systemctl --user enable --now oura-hub.service`.
-# Replace 100.112.25.101 with `tailscale ip -4`, or drop that line for loopback only.
+# Podman Quadlet unit for the hub. deploy/install.sh copies it to
+# ~/.config/containers/systemd/ and adds the PublishPort lines for this machine
+# (loopback and the Tailscale address). Run install.sh instead of copying it by hand.
 [Unit]
 Description=Open Oura health hub
 After=network-online.target
@@ -9,12 +9,14 @@ Wants=network-online.target
 [Container]
 Image=localhost/oura-hub:latest
 ContainerName=oura-hub
-PublishPort=127.0.0.1:8787:8787
-PublishPort=100.112.25.101:8787:8787
 Environment=RUST_LOG=info
 # OURA_HUB_TOKEN=<token>
 EnvironmentFile=%h/.config/oura-hub.env
 Volume=%h/oura-hub-data:/data:Z
+# the agent CLIs' logins
+Volume=%h/oura-hub-agent/claude:/root/.claude:Z
+Volume=%h/oura-hub-agent/codex:/root/.codex:Z
+Volume=%h/oura-hub-agent/cursor:/root/.cursor:Z
 
 [Service]
 Restart=always

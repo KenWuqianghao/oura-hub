@@ -1,11 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte'
-  import { Heart, BedDouble, TrendingUp, Database, RefreshCw, LogOut } from 'lucide-svelte'
+  import { Heart, BedDouble, TrendingUp, Database, RefreshCw, LogOut, Sparkles } from 'lucide-svelte'
   import Login from './pages/Login.svelte'
   import Summary from './pages/Summary.svelte'
   import Sleep from './pages/Sleep.svelte'
   import Trends from './pages/Trends.svelte'
   import Data from './pages/Data.svelte'
+  import Ask from './pages/Ask.svelte'
   import { hub, check, load, logout } from './lib/store.svelte'
   import { ago } from './lib/fmt'
 
@@ -26,6 +27,7 @@
     { id: 'summary', title: 'Summary', icon: Heart },
     { id: 'sleep', title: 'Sleep', icon: BedDouble },
     { id: 'trends', title: 'Trends', icon: TrendingUp },
+    { id: 'ask', title: 'Ask', icon: Sparkles },
     { id: 'data', title: 'Data', icon: Database },
   ]
 </script>
@@ -60,6 +62,7 @@
         <div class="body">The hub is up, but no summary has been pushed yet. Open the app on your phone, go to Settings → Health hub, and tap Send Now.</div>
       {:else if tab === 'sleep'}<Sleep />
       {:else if tab === 'trends'}<Trends metric={route.split('/')[1] || 'hrv_ms'} />
+      {:else if tab === 'ask'}<Ask />
       {:else if tab === 'data'}<Data />
       {:else}<Summary {go} />{/if}
     </main>

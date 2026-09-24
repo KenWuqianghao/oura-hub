@@ -12,7 +12,9 @@ samples here. Agents (Grok Bot, Claude Code, any MCP client) read them over MCP.
 - `GET /export/events`: the ring replica back out, in pages.
 - `GET /health`: liveness; details with the token.
 - `GET /`: the web UI (Apple Health style, like the iOS app): Summary, Sleep, Trends,
-  Data. It signs in with the same token and reads `/api/summary` and `/api/tool/<name>`.
+  Ask, Data. It signs in with the same token and reads `/api/summary` and `/api/tool/<name>`.
+- `POST /api/agent/ask`: the built-in agent. Runs your own Claude Code, Codex, or
+  Cursor CLI on the hub with the health tools attached; streams the answer.
 
 Data lives in two SQLite files: `hub.db` (summary snapshots, Apple Health samples) and
 `oura.db` (the ring replica, `oura-store` schema).

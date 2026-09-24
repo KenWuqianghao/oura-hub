@@ -7,6 +7,7 @@
 //! the ring data: `oura dashboard --db` runs on it, and `GET /export/events` gives
 //! the rows back. The process holds no state outside the two files.
 
+pub mod agent;
 pub mod health;
 pub mod mcp;
 pub mod store;
@@ -35,6 +36,7 @@ pub const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 
 pub struct AppState {
     pub store: Arc<Store>,
+    pub agent: agent::AgentConfig,
     /// The ring replica: raw events, readings, devices in the `oura-store` schema.
     pub ring: Mutex<oura_store::Store>,
     pub token: String,
@@ -171,10 +173,15 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
 }
 
 pub fn app_state(store: Store, ring: oura_store::Store, token: String) -> Arc<AppState> {
+    app_state_with_agent(store, ring, token, agent::AgentConfig::new(std::env::temp_dir().join("oura-hub-agent"), String::new()))
+}
+
+pub fn app_state_with_agent(store: Store, ring: oura_store::Store, token: String, agent: agent::AgentConfig) -> Arc<AppState> {
     let store = Arc::new(store);
     let (tools, handler) = tools(store.clone());
     Arc::new(AppState {
         store,
+        agent,
         ring: Mutex::new(ring),
         token,
         mcp: Server {
@@ -201,6 +208,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/api/session", get(web::session))
         .route("/api/summary", get(web::summary))
         .route("/api/tool/{name}", post(web::tool))
+        .route("/api/agent/providers", get(web::agent_providers))
+        .route("/api/agent/ask", post(web::agent_ask))
         .route("/{*path}", get(web::asset))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state)
