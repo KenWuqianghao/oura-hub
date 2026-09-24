@@ -1,0 +1,131 @@
+/* The design tokens, translated from the iOS app's Theme.swift: the Apple Health
+   look. A grouped background, cards with a colored category label, big rounded
+   numbers, one accent per metric. Light and dark follow the system. */
+:root {
+  color-scheme: light dark;
+  --bg: #f2f2f7;
+  --card: #ffffff;
+  --fill: rgba(120, 120, 128, 0.12);
+  --text: #000000;
+  --secondary: rgba(60, 60, 67, 0.6);
+  --tertiary: rgba(60, 60, 67, 0.3);
+  --separator: rgba(60, 60, 67, 0.2);
+  --accent: #007aff;
+  --sleep: #5856d6;
+  --activity: #ff9500;
+  --readiness: #30b0c7;
+  --heart: #ff3b30;
+  --hrv: #00c7be;
+  --temperature: #af52de;
+  --oxygen: #32ade6;
+  --cardio: #ff2d55;
+  --device: #8e8e93;
+  --good: #34c759;
+  --caution: #ff9500;
+  --alert: #ff3b30;
+  --deep: #5856d6;
+  --light: #007aff;
+  --rem: #32ade6;
+  --awake: #ff9500;
+  --radius: 20px;
+  --pad: 16px;
+  --gutter: 16px;
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-rounded: ui-rounded, "SF Pro Rounded", -apple-system, BlinkMacSystemFont, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --card: #1c1c1e;
+    --fill: rgba(120, 120, 128, 0.24);
+    --text: #ffffff;
+    --secondary: rgba(235, 235, 245, 0.6);
+    --tertiary: rgba(235, 235, 245, 0.3);
+    --separator: rgba(84, 84, 88, 0.6);
+    --accent: #0a84ff;
+    --sleep: #5e5ce6;
+    --activity: #ff9f0a;
+    --readiness: #40c8e0;
+    --heart: #ff453a;
+    --hrv: #63e6e2;
+    --temperature: #bf5af2;
+    --oxygen: #64d2ff;
+    --cardio: #ff375f;
+    --device: #98989d;
+    --good: #30d158;
+    --caution: #ff9f0a;
+    --alert: #ff453a;
+    --deep: #5e5ce6;
+    --light: #0a84ff;
+    --rem: #64d2ff;
+    --awake: #ff9f0a;
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--text); font-family: var(--font); -webkit-font-smoothing: antialiased; }
+body { min-height: 100vh; }
+a { color: var(--accent); text-decoration: none; }
+button { font: inherit; }
+
+/* layout */
+.page { max-width: 720px; margin: 0 auto; padding: 0 var(--gutter) 96px; }
+.large-title { font-size: 34px; font-weight: 700; letter-spacing: 0.2px; margin: 16px 0 6px; }
+.subtitle { color: var(--secondary); font-size: 15px; margin-bottom: 14px; }
+.section-title { font-size: 22px; font-weight: 700; margin: 22px 0 10px; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+@media (max-width: 420px) { .grid2 { grid-template-columns: 1fr; } }
+
+/* card */
+.card { background: var(--card); border-radius: var(--radius); padding: var(--pad); display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.card.link { cursor: pointer; transition: transform 0.15s ease, opacity 0.15s ease; }
+.card.link:active { transform: scale(0.985); opacity: 0.9; }
+.card-header { display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 17px; }
+.card-header .title { display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-header .detail { margin-left: auto; color: var(--secondary); font-weight: 400; font-size: 15px; white-space: nowrap; }
+.card-header .chevron { color: var(--tertiary); }
+.label { color: var(--secondary); font-size: 15px; }
+.caption { color: var(--secondary); font-size: 13px; }
+.footnote { color: var(--secondary); font-size: 13px; }
+.body { font-size: 17px; line-height: 1.35; }
+.tabular { font-variant-numeric: tabular-nums; }
+.divider { height: 1px; background: var(--separator); margin: 2px 0; }
+
+/* big number */
+.big { display: flex; align-items: baseline; gap: 6px; font-family: var(--font-rounded); font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.big .value { font-size: 28px; }
+.big.large .value { font-size: 34px; }
+.big.small .value { font-size: 22px; }
+.big .unit { font-family: var(--font); font-size: 15px; font-weight: 500; color: var(--secondary); }
+
+/* pill */
+.pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* stat row */
+.stat-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 15px; padding: 3px 0; }
+.stat-row .k { color: var(--secondary); }
+.stat-row .v { font-variant-numeric: tabular-nums; text-align: right; }
+
+/* tab bar */
+.tabbar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; gap: 4px; padding: 8px max(12px, env(safe-area-inset-left)) max(10px, env(safe-area-inset-bottom)); background: color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); border-top: 1px solid var(--separator); }
+.tabbar button { flex: 1; max-width: 140px; border: 0; background: transparent; color: var(--secondary); font-size: 11px; font-weight: 500; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 4px 0; border-radius: 12px; cursor: pointer; }
+.tabbar button.active { color: var(--accent); }
+.tabbar button svg { width: 24px; height: 24px; }
+
+/* forms */
+.input { width: 100%; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--separator); background: var(--card); color: var(--text); font-size: 17px; }
+.button { width: 100%; padding: 14px; border-radius: 14px; border: 0; background: var(--accent); color: #fff; font-size: 17px; font-weight: 600; cursor: pointer; }
+.button.secondary { background: var(--fill); color: var(--text); }
+select.input { appearance: none; }
+.segmented { display: inline-flex; background: var(--fill); border-radius: 10px; padding: 2px; gap: 2px; }
+.segmented button { border: 0; background: transparent; color: var(--secondary); padding: 6px 12px; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.segmented button.active { background: var(--card); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+
+.empty { display: flex; gap: 14px; align-items: center; padding: 4px 0; }
+.empty .icon { width: 36px; color: var(--secondary); display: flex; justify-content: center; }
+.empty .t { font-weight: 600; }
+.empty .s { color: var(--secondary); font-size: 15px; }
+.error { background: color-mix(in srgb, var(--alert) 12%, var(--card)); color: var(--alert); padding: 12px 14px; border-radius: 12px; font-size: 15px; }
+.muted { color: var(--secondary); }

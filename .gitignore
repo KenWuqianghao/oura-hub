@@ -4,3 +4,5 @@
 *.db-shm
 .hub-token
 .env
+web/dist
+web/node_modules

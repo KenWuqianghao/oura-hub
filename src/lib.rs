@@ -10,6 +10,7 @@
 pub mod health;
 pub mod mcp;
 pub mod store;
+pub mod web;
 
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -56,7 +57,7 @@ pub fn token_matches(given: &str, expected: &str) -> bool {
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-fn bearer(headers: &HeaderMap) -> Option<&str> {
+pub(crate) fn bearer(headers: &HeaderMap) -> Option<&str> {
     headers
         .get(header::AUTHORIZATION)?
         .to_str()
@@ -195,6 +196,12 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/export/events", get(export_events))
         .route("/mcp", post(mcp_bearer).get(mcp_no_stream).delete(mcp_no_stream))
         .route("/mcp/{token}", post(mcp_path).get(mcp_no_stream).delete(mcp_no_stream))
+        // the web UI and its API
+        .route("/", get(web::index))
+        .route("/api/session", get(web::session))
+        .route("/api/summary", get(web::summary))
+        .route("/api/tool/{name}", post(web::tool))
+        .route("/{*path}", get(web::asset))
         .layer(DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state)
 }

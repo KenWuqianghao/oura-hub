@@ -4,3 +4,5 @@ target
 *.db-wal
 *.db-shm
 .hub-token
+web/node_modules
+web/dist

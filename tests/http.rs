@@ -1,6 +1,6 @@
 
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::{header, Request, StatusCode};
 use http_body_util::BodyExt;
 use serde_json::{json, Value};
 use tower::ServiceExt;
@@ -243,4 +243,42 @@ async fn health_samples_round_trip_and_fold_into_status() {
     assert_eq!(out["deleted"], 1);
     let (_, h) = send(&app, get_auth("/health")).await;
     assert_eq!(h["health"].as_array().unwrap().len(), 3);
+}
+
+#[tokio::test]
+async fn web_api_needs_the_token_and_reuses_the_tools() {
+    let app = app();
+    let (s, _) = send(&app, Request::get("/api/session").body(Body::empty()).unwrap()).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let (s, r) = send(&app, get_auth("/api/session")).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(r["ok"], true);
+
+    let (s, _) = send(&app, get_auth("/api/summary")).await;
+    assert_eq!(s, StatusCode::NOT_FOUND, "nothing pushed yet");
+    let (_, _) = send(&app, post("/ingest/summary", Some(TOKEN), summary())).await;
+    let (s, r) = send(&app, get_auth("/api/summary")).await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(r["body"]["nights"][0]["ymd"], "2023-11-14");
+    assert!(r["received_at"].as_i64().unwrap() > 0);
+
+    let (s, r) = send(&app, post("/api/tool/get_sleep", Some(TOKEN), json!({ "days": 1 }))).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(r["count"], 1);
+    let (s, _) = send(&app, post("/api/tool/get_sleep", None, json!({}))).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let (s, _) = send(&app, post("/api/tool/nope", Some(TOKEN), json!({}))).await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    let (s, r) = send(&app, post("/api/tool/get_trends", Some(TOKEN), json!({ "metric": "mood" }))).await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(r["error"].as_str().unwrap().contains("unknown metric"));
+
+    // the app shell is served (built or the placeholder), and client routes fall back to it
+    let res = app.clone().oneshot(Request::get("/").body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(res.headers()[header::CONTENT_TYPE].to_str().unwrap().starts_with("text/html"));
+    let res = app.clone().oneshot(Request::get("/sleep").body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let res = app.clone().oneshot(Request::get("/assets/missing.js").body(Body::empty()).unwrap()).await.unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }

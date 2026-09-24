@@ -271,6 +271,16 @@ oura dashboard --db /data/oura.db
 
 `GET /health` shows `ring.max_event_id`; compare it with the app's "through id".
 
+## The web UI
+
+Open the hub address in a browser. Sign in with the token; it stays in that browser.
+The pages follow the iOS app: **Summary** (scores, last night, activity, vitals with
+sparklines, Apple Watch, recovery, cardiovascular, ring), **Sleep** (every night with
+its hypnogram and metrics, plus the Watch's last sleep), **Trends** (one ring or Watch
+metric per day over 14 to 180 days), and **Data** (what the hub holds). The UI reads
+`GET /api/summary` (the latest snapshot) and `POST /api/tool/<name>` (the MCP tools)
+with the bearer token. It is built from `web/` and embedded in the binary.
+
 ## Connect an agent over MCP
 
 The MCP endpoint is Streamable HTTP with JSON replies. Two ways to authenticate:
