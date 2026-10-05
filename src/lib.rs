@@ -102,10 +102,15 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
             input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
         },
         Tool {
+            name: "list_health_kinds",
+            description: "The Apple Health kinds this hub holds: for each kind the number of samples and the end time of the newest one. Use a kind from this list with get_health_samples.",
+            input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
+        },
+        Tool {
             name: "get_health_samples",
-            description: "Raw Apple Health samples of one kind, newest first. Kinds: heart_rate, resting_heart_rate, hrv_sdnn, walking_heart_rate_average, vo2_max, step_count, active_energy, basal_energy, exercise_time, stand_time, stand_hour, distance_walking_running, respiratory_rate, oxygen_saturation, wrist_temperature, sleep_analysis, workout. Either `days` back from now, or an explicit `start_unix`/`end_unix` window.",
+            description: "Raw Apple Health samples of one kind, newest first. The phone sends every Apple Health quantity and category type plus ECG, from every source but the ring app itself. Call list_health_kinds for the kinds this hub holds. Named kinds: heart_rate, resting_heart_rate, hrv_sdnn, walking_heart_rate_average, vo2_max, step_count, active_energy, basal_energy, exercise_time, stand_time, stand_hour, distance_walking_running, respiratory_rate, oxygen_saturation, wrist_temperature, sleep_analysis, workout. Every other kind is the HealthKit name in snake_case: body_mass (kg), body_fat_percentage, blood_pressure_systolic and blood_pressure_diastolic (mmHg), blood_glucose (mg/dL), dietary_energy_consumed (kcal), dietary_protein (g), dietary_water (L), mindful_session, time_in_daylight (s), electrocardiogram. A row has `value` and `unit` for a quantity and `category` for a category. Either `days` back from now, or an explicit `start_unix`/`end_unix` window.",
             input_schema: json!({ "type": "object", "properties": {
-                "kind": { "type": "string", "description": "Which kind to return." },
+                "kind": { "type": "string", "description": "Which kind to return; see list_health_kinds." },
                 "days": { "type": "integer", "minimum": 1, "maximum": 365, "default": 7 },
                 "start_unix": { "type": "number", "description": "Window start (unix seconds); overrides days." },
                 "end_unix": { "type": "number", "description": "Window end (unix seconds); default now." },
@@ -142,6 +147,12 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
         if name == "get_watch" {
             let snap = store_for_handler.latest().map_err(|e| format!("store error: {e}"))?;
             return watch(snap.as_ref().map(|s| &s.body));
+        }
+        if name == "list_health_kinds" {
+            let kinds = store_for_handler.health_kinds().map_err(|e| format!("store error: {e}"))?;
+            return Ok(json!({ "count": kinds.len(), "kinds": kinds.iter().map(|(kind, samples, newest)| {
+                json!({ "kind": kind, "samples": samples, "newest_end_unix": *newest as i64 })
+            }).collect::<Vec<_>>() }));
         }
         if name == "get_health_samples" {
             let kind = args["kind"].as_str().ok_or("kind is required")?;

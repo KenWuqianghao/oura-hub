@@ -195,6 +195,7 @@ read them:
 | Tool | Arguments | Returns |
 | --- | --- | --- |
 | `get_watch` | none | Today and yesterday totals (best single source per day, so iPhone and Watch steps are not added together), latest heart rate, resting heart rate, HRV with a 7-day mean, VO2 max, respiratory rate, blood oxygen, wrist temperature, the last sleep with stages, workouts in the last 48 h, freshness |
+| `list_health_kinds` | none | The Apple Health kinds the hub holds, with sample counts |
 | `get_health_samples` | `kind`, `days` (default 7), `limit` (default 500) | Raw samples of one kind, newest first |
 
 `get_status_now` carries the same picture under `watch`, so one call gives the ring
@@ -320,6 +321,7 @@ curl -s https://hub.example.com/mcp/<token> -H 'content-type: application/json' 
 | `get_trends` | `metric`, `days` (default 14) | One value per day, oldest first, with latest, mean, and baseline |
 | `get_activity` | `days` (default 7) | Steps, active kcal, total kcal, distance per day |
 | `get_watch` | none | The Apple Health picture (see above) |
+| `list_health_kinds` | none | The Apple Health kinds the hub holds |
 | `get_health_samples` | `kind`, `days`, `limit` | Raw Apple Health samples of one kind |
 
 Metrics for `get_trends`: `hrv_ms`, `rhr`, `skin_temp`, `efficiency`, `in_bed_h`,
