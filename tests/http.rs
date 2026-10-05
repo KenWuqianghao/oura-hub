@@ -108,7 +108,7 @@ async fn ingest_then_health_then_tools() {
 
     let (_, r) = send(&app, post(&uri, None, rpc(2, "tools/list", json!({})))).await;
     let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(names, ["get_status_now", "get_sleep", "get_trends", "get_watch", "get_health_samples", "get_activity"]);
+    assert_eq!(names, ["get_status_now", "get_sleep", "get_trends", "get_watch", "list_health_kinds", "get_health_samples", "get_activity"]);
 
     let (_, r) = send(&app, post(&uri, None, rpc(3, "tools/call", json!({ "name": "get_status_now", "arguments": {} })))).await;
     assert_eq!(r["result"]["isError"], false, "{r}");
@@ -231,6 +231,11 @@ async fn health_samples_round_trip_and_fold_into_status() {
     let (_, r) = send(&app, post(&uri, None, rpc(2, "tools/call", json!({ "name": "get_health_samples", "arguments": { "kind": "heart_rate", "days": 1 } })))).await;
     assert_eq!(r["result"]["structuredContent"]["count"], 1);
     assert_eq!(r["result"]["structuredContent"]["samples"][0]["uuid"], "h1");
+
+    let (_, r) = send(&app, post(&uri, None, rpc(2, "tools/call", json!({ "name": "list_health_kinds", "arguments": {} })))).await;
+    let kinds = r["result"]["structuredContent"]["kinds"].as_array().unwrap();
+    assert!(kinds.iter().any(|k| k["kind"] == "heart_rate" && k["samples"] == 1));
+    assert_eq!(r["result"]["structuredContent"]["count"], kinds.len());
 
     // after a ring summary the status carries a watch block
     let (_, _) = send(&app, post("/ingest/summary", Some(TOKEN), summary())).await;
