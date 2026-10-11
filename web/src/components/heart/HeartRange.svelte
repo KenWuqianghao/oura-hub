@@ -24,7 +24,7 @@
 
 <ChartFrame title={kindTitle(KIND)} color="--c-heart" label={t('common.stat_range')} value={s.min} to={s.max} unit="bpm" when={F.dateRange(win.start, win.end)} {height} {option}
   ready={!!data} loading={res.loading} error={res.error} empty={data && !inWindow.length ? noDataText(held.data ? coverage(held.data, KIND) : undefined) : ''}>
-  {#snippet aside()}{t('common.stat_average')} <b><Num value={s.mean} /></b> bpm · {t('common.days_with_data', { n: F.num(s.days) })}{/snippet}
+  {#snippet aside()}{#if data}{t('common.stat_average')} <b><Num value={s.mean} /></b> bpm · {t('common.days_with_data', { n: F.num(s.days) })}{/if}{/snippet}
   {#snippet legend()}<span><span class="bar"></span>{t(`heart.legend_range_${buckets.size}`)}</span><span><span class="dot"></span>{t(buckets.size === 'day' ? 'heart.legend_mean' : 'heart.legend_mean_days')}</span>{/snippet}
 </ChartFrame>
 
