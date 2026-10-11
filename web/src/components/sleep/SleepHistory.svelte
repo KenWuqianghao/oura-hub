@@ -99,7 +99,6 @@
 </section>
 
 <style>
-  section { scroll-margin-top: 60px; }
   .eyebrow { flex-wrap: wrap; row-gap: 8px; }
   .title { color: var(--c-sleep-ink); white-space: nowrap; }
   .say { margin-bottom: 20px; min-height: 2.8em; }

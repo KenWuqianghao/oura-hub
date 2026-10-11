@@ -2,10 +2,10 @@
   // A section of a page: a hairline, a small label with an optional aside and a
   // control on the right, then the content.
   import type { Snippet } from 'svelte'
-  let { title = '', aside = '', right, flush = false, children }: { title?: string; aside?: string; right?: Snippet; flush?: boolean; children: Snippet } = $props()
+  let { title = '', aside = '', right, flush = false, id, children }: { title?: string; aside?: string; right?: Snippet; flush?: boolean; /** For a link that opens the page at this section: `#/<tab>/<section>` looks for `<tab>-<section>`. */ id?: string; children: Snippet } = $props()
 </script>
 
-<section class="section" class:flush>
+<section class="section" class:flush {id}>
   {#if title || right}
     <div class="eyebrow">
       {#if title}<span>{title}</span>{/if}

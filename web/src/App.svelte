@@ -18,13 +18,14 @@
   import { hub, check, load, logout, adoptHashToken } from './lib/store.svelte'
   import { t, i18n, setLocale, type Key, type Locale } from './lib/i18n.svelte'
   import { thumb, transition } from './lib/motion'
+  import { theme } from './lib/theme.svelte'
   import { ago } from './lib/fmt'
 
   // Hash routes: #/<tab>[/<param>]. `summary` marks a page that shows the ring
   // summary; every other page renders without one.
   const TABS = {
     today: { title: 'shell.today', nav: true, summary: true },
-    sleep: { title: 'shell.sleep', nav: true, summary: true },
+    sleep: { title: 'shell.sleep', nav: true, summary: false },
     activity: { title: 'shell.activity', nav: true, summary: false },
     heart: { title: 'shell.heart', nav: true, summary: false },
     nutrition: { title: 'shell.nutrition', nav: true, summary: false },
@@ -60,6 +61,25 @@
     return () => { removeEventListener('hashchange', onHash); document.removeEventListener('visibilitychange', onVis); clearInterval(timer) }
   })
   const updated = $derived(hub.receivedAt ? ago(hub.receivedAt) : '')
+
+  // `#/<tab>/<section>` opens a page at one of its sections (`id="<tab>-<section>"`). On a direct load the
+  // section mounts late, and the charts above it can still grow: wait for it, then settle once more.
+  $effect(() => {
+    if (!param || tab === 'trends' || !hub.authed) return
+    const id = `${tab}-${param}`
+    let timer = 0
+    const show = () => document.getElementById(id)?.scrollIntoView({ behavior: theme.reduced ? 'auto' : 'smooth', block: 'start' })
+    const arrive = () => {
+      if (!document.getElementById(id)) return false
+      watch.disconnect()
+      requestAnimationFrame(show)
+      timer = window.setTimeout(show, 700)
+      return true
+    }
+    const watch = new MutationObserver(arrive)
+    if (!arrive()) watch.observe(document.body, { childList: true, subtree: true })
+    return () => { watch.disconnect(); clearTimeout(timer) }
+  })
 </script>
 
 {#if hub.checking}

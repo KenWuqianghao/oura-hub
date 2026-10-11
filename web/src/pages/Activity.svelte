@@ -48,7 +48,7 @@
     <OutOfRange kinds={MORE} {range} />
   </Section>
 
-  <Section title={t('activity.workouts')}>
+  <Section title={t('activity.workouts')} id="activity-workouts">
     <TrainingChart data={wk.data} loading={wk.loading} error={wk.error} />
     <div class="types">
       {#if wk.error && !wk.data}
