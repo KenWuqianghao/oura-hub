@@ -117,10 +117,25 @@ export function rolling(values: (number | null)[], n = 7): (number | null)[] {
   })
 }
 
+/** The window of the same length that ends on the day before `start`. "All" has no period before it. */
+export function windowBefore(range: RangeId, start: string): { start: string; end: string } | null {
+  if (range === 'All') return null
+  const days = rangeDays(range)
+  return { start: ymdOf(utc(start) - days * DAY), end: ymdOf(utc(start) - DAY) }
+}
+
 const pad = (n: number) => String(n).padStart(2, '0')
+const localYmd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 /** The first and the last day a range shows, as yyyy-mm-dd. "All" starts at the first day with data. */
 export function windowOf(id: RangeId, days: DayPoint[], now = new Date()): { start: string; end: string } {
-  const end = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+  const end = localYmd(now)
   const back = id === 'All' ? (days.length ? spanDays(days[0].ymd, end) : 30) : rangeDays(id)
   return { start: ymdOf(utc(end) - (Math.max(back, 1) - 1) * DAY), end }
+}
+
+/** The range that reaches data whose newest row is at `newestUnix`: the picked range, or the first longer one. A kind that stopped years ago then does not open empty. */
+export function fitRange(picked: RangeId, newestUnix: number, now = new Date()): RangeId {
+  const age = spanDays(localYmd(new Date(newestUnix * 1000)), localYmd(now))
+  const from = RANGES.findIndex(r => r.id === picked)
+  return RANGES.find((r, i) => i >= from && r.days >= age)?.id ?? 'All'
 }

@@ -2,8 +2,7 @@
 // the lead sentence, the charts, the facts, and the table change in the same moment.
 import { api, type SleepNight } from './api'
 import { loadSleep } from './health.svelte'
-import { windowOf, type RangeId } from './range'
-import { windowBefore } from './trends'
+import { windowBefore, windowOf, type RangeId } from './range'
 
 export interface SleepHistory { range: RangeId; nights: SleepNight[]; before: SleepNight[] | null }
 

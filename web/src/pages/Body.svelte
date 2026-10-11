@@ -20,8 +20,9 @@
   // every kind here is light, so the whole record comes in one request and a change of range needs no load
   const all = dailyAll(() => [...BODY_KINDS], () => 'All')
   const byKind = $derived(new Map((all.data ?? []).map(s => [s.kind, s])))
-  // without the range of the load: a chart then follows the range control
-  const series = (kind: string): DailySeries | undefined => { const s = byKind.get(kind); return s && { kind: s.kind, agg: s.agg, unit: s.unit, days: s.days } }
+  const series = (kind: string): DailySeries | undefined => byKind.get(kind)
+  // for a chart: null while the record loads, and an empty series for a kind the hub does not hold
+  const charted = (kind: string): DailySeries | null => !all.data ? null : series(kind) ?? { kind, agg: 'mean', unit: '', days: [] }
   const ready = $derived(!!all.data)
   const date = (ymd: string) => F.fullDateOf(F.dayStartMs(ymd))
 
@@ -59,7 +60,7 @@
       {/if}
       {#if !ready || weight.is !== 'none'}
         <div class="cols weight">
-          {#if ready}<MetricChart kind="body_mass" {range} series={series('body_mass')} type="line" stat="latest" height={240} />{:else}<Skeleton height={340} />{/if}
+          <MetricChart kind="body_mass" {range} series={charted('body_mass')} stat="latest" height={240} />
           <KindTable kinds={COMPOSITION} {range} {series} {ready} />
         </div>
       {/if}
@@ -69,7 +70,7 @@
       <p class="sub about">{t('body.mobility_about')}</p>
       <div class="cols cols-2">
         {#each MOBILITY_CHARTS as kind (kind)}
-          {#if ready}<MetricChart {kind} {range} series={series(kind)} height={200} />{:else}<Skeleton height={300} />{/if}
+          <MetricChart {kind} {range} series={charted(kind)} height={200} />
         {/each}
       </div>
       <div class="below"><KindTable kinds={MOBILITY_ROWS} {range} {series} {ready} /></div>

@@ -9,14 +9,13 @@
   import Skeleton from '../components/Skeleton.svelte'
   import StepsLead from '../components/activity/StepsLead.svelte'
   import DayBars from '../components/activity/DayBars.svelte'
-  import OutOfRange from '../components/activity/OutOfRange.svelte'
+  import OutOfRange from '../components/OutOfRange.svelte'
   import TrainingChart from '../components/activity/TrainingChart.svelte'
   import WorkoutTypes from '../components/activity/WorkoutTypes.svelte'
   import WorkoutLog from '../components/activity/WorkoutLog.svelte'
   import YearHeat from '../components/activity/YearHeat.svelte'
-  import { healthKinds } from '../lib/health.svelte'
+  import { healthKinds, coverage } from '../lib/health.svelte'
   import { rangedWorkouts } from '../lib/activity-data.svelte'
-  import { coverage } from '../lib/activity'
   import { t } from '../lib/i18n.svelte'
   import * as F from '../lib/fmt'
   import type { RangeId } from '../lib/range'
@@ -40,7 +39,7 @@
     <MetricChart kind="step_count" {range} height={280} />
   </div>
 
-  <Section title={t('activity.measures')} aside={t('activity.measures_aside')}>
+  <Section title={t('activity.measures')}>
     <div class="measures">{#each DAILY as kind (kind)}<DayBars {kind} {range} />{/each}</div>
   </Section>
 
@@ -59,7 +58,7 @@
       {:else if wk.data.list.length}
         <WorkoutTypes workouts={wk.data.list} repeats={wk.data.repeats} />
       {:else}
-        <Empty title={t('activity.no_workouts_range')} text={newestWorkout ? t('activity.no_workouts_text', { date: F.fullDateOf(F.parseYmd(newestWorkout) ?? new Date()) }) : held.data ? t('activity.no_workouts_ever') : ''} />
+        <Empty title={t('activity.no_workouts_period')} text={newestWorkout ? t('activity.no_workouts_text', { date: F.fullDateOf(F.parseYmd(newestWorkout) ?? new Date()) }) : held.data ? t('activity.no_workouts_ever') : ''} />
       {/if}
     </div>
   </Section>

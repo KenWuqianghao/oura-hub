@@ -6,7 +6,7 @@ import { LineChart, BarChart, CustomChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent, LegendComponent, AxisPointerComponent, GraphicComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { theme } from './theme.svelte'
-import { intlTag } from './i18n.svelte'
+import { t, intlTag } from './i18n.svelte'
 import type { BucketSize } from './range'
 import * as F from './fmt'
 
@@ -75,6 +75,14 @@ export const tipHead = (text: string) => `<div style="color:${token('--ash')};fo
 /** One tooltip row: a bold value and its unit or label. */
 export const tipRow = (value: string, label: string) => `<div><b>${value}</b> <span style="color:${token('--ash')}">${label}</span></div>`
 
+/** The tooltip row of a mark with no value. */
+export const tipNone = (text = t('common.no_data')) => `<div style="color:${token('--ash')}">${text}</div>`
+/** A small line under the rows of a tooltip. */
+export const tipNote = (text: string) => `<div style="color:${token('--ash')};font-size:11px;margin-top:4px">${text}</div>`
+/** A tooltip row with the swatch of its series. */
+export const tipSwatch = (color: string, value: string, label: string, round = false) =>
+  `<div><span style="display:inline-block;width:8px;height:8px;border-radius:${round ? '50%' : '2px'};margin-right:6px;background:${color}"></span><b>${value}</b> <span style="color:${token('--ash')}">${label}</span></div>`
+
 const fmtDay = (opts: Intl.DateTimeFormatOptions, ymd: string) => new Intl.DateTimeFormat(intlTag(), opts).format(F.parseYmd(ymd) ?? new Date())
 /** A mark in full, for a tooltip: the day with its weekday, the dates of a week, or the month with its year. */
 export function bucketLabel(b: { start: string; end: string }, size: BucketSize): string {
@@ -85,8 +93,8 @@ export function bucketLabel(b: { start: string; end: string }, size: BucketSize)
 
 /**
  * The axis text of each mark, and the marks that get one. Up to seven days: every
- * weekday. More days: about seven dates, counted back from the newest. Weeks and
- * months: the first mark of a month, every few months counted from January, so
+ * weekday. More days: about seven dates, counted back from the newest. Up to nine
+ * weeks or months: each one. More: the first mark of a month, every few months counted from January, so
  * January is always there and reads as its year. Many years: years only.
  */
 function ticks(starts: string[], size: BucketSize): { label: string; show: boolean }[] {
@@ -102,6 +110,8 @@ function ticks(starts: string[], size: BucketSize): { label: string; show: boole
       return { label, show: true }
     })
   }
+  // a few weeks: a date under each
+  if (n <= 9) return starts.map(s => ({ label: F.monthDay(s), show: true }))
   const index = (s: string) => +s.slice(0, 4) * 12 + +s.slice(5, 7) - 1
   const months = n ? index(starts[n - 1]) - index(starts[0]) + 1 : 0
   const every = [1, 2, 3, 4, 6, 12, 24, 60].find(e => Math.ceil(months / e) <= (e >= 12 ? 12 : 7)) ?? 120
@@ -121,12 +131,21 @@ export function bucketAxis(points: { start: string }[], size: BucketSize, extra:
   }
 }
 
+/** A tooltip over the marks of a bucket axis: `row` gets the index of the mark under the pointer. */
+export function bucketTip(row: (index: number) => string, pointer: 'shadow' | 'line' = 'shadow') {
+  const tk = tokens()
+  return {
+    ...(base().tooltip as object), axisPointer: { type: pointer, lineStyle: { color: tk.ruleStrong, width: 1 }, shadowStyle: { color: tk.band }, label: { show: false } },
+    formatter: (params: unknown) => { const p = (Array.isArray(params) ? params[0] : params) as { dataIndex?: number } | undefined; return p?.dataIndex == null ? '' : row(p.dataIndex) },
+  }
+}
+
 /** An axis number in little room: "6.5K", "1.2万". */
 export const compact = (v: number, decimals = 0) => new Intl.NumberFormat(intlTag(), { notation: 'compact', maximumFractionDigits: Math.abs(v) < 10 ? Math.max(decimals, 1) : 1 }).format(v)
 
 /**
  * A y axis that fits the values from `lo` to `hi` with a little room, on round
- * numbers, in about three steps. One value alone gets a narrow axis around it, not
+ * numbers, in three to seven steps. One value alone gets a narrow axis around it, not
  * an axis from zero. For lines and range bars; a bar axis starts at zero.
  */
 export function fitAxis(lo: number | null, hi: number | null, decimals = 0): { min?: number; max?: number; interval?: number } {
@@ -134,12 +153,26 @@ export function fitAxis(lo: number | null, hi: number | null, decimals = 0): { m
   const unit = 10 ** -decimals
   const pad = Math.max((hi - lo) * 0.12, Math.abs(hi) * 0.02, unit)
   const raw = (hi - lo + 2 * pad) / 3, pow = 10 ** Math.floor(Math.log10(raw))
-  const step = Math.max(unit, [1, 2, 2.5, 5, 10].map(m => m * pow).find(s => s >= raw) ?? raw)
+  const step = Math.max(unit, [5, 2.5, 2, 1].map(m => m * pow).find(s => s <= raw) ?? raw)
   // the step is a float product: round the ends to the step's own digits
   const digits = Math.max(0, -Math.floor(Math.log10(step)) + 1), round = (v: number) => +v.toFixed(digits)
   const min = round(Math.floor((lo - pad) / step) * step)
   return { min: lo >= 0 ? Math.max(0, min) : min, max: round(Math.ceil((hi + pad) / step) * step), interval: step }
 }
+
+type MarkLabel = 'insideEndTop' | 'insideEndBottom' | 'insideStartTop'
+/** A horizontal line across the plot with its text at the right end. Dashed: the average of the period. Solid: a reference from outside the data. */
+export function refLine(value: number, text: string, o: { dashed?: boolean; position?: MarkLabel } = {}) {
+  const tk = tokens()
+  return {
+    yAxis: value, lineStyle: { color: tk.ash, width: 1, type: o.dashed ? [4, 3] : 'solid' },
+    // marks can sit under the text: a surface behind it keeps it readable
+    label: { show: !!text, formatter: text, position: o.position ?? 'insideEndTop', color: tk.ash, fontSize: 11, fontFamily: tk.font, backgroundColor: tk.surface, padding: [1, 4], borderRadius: 3 },
+  }
+}
+/** The dashed line at the average the head of the chart shows, with the same number. */
+export const averageLine = (value: number | null, text: string) => value == null ? [] : [refLine(value, text, { dashed: true })]
+export const markLines = (lines: object[]) => ({ silent: true, symbol: 'none', animation: false, data: lines })
 
 const list = (v: unknown): any[] => v == null ? [] : Array.isArray(v) ? v : [v]
 // The parts of an option that ECharts cannot merge in place: when one of them

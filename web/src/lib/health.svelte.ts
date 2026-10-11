@@ -5,6 +5,8 @@
 import { api, type DailySeries, type SleepNight, type HealthWorkout, type HealthKind } from './api'
 import { kindInfo } from './kinds'
 import { rangeDays, type RangeId } from './range'
+import { t } from './i18n.svelte'
+import { fullDateOf, parseYmd, todayYmd } from './fmt'
 
 const HEAVY = new Set(['heart_rate', 'active_energy', 'basal_energy', 'physical_effort', 'step_count'])
 const BATCH = 60
@@ -66,6 +68,23 @@ export const loadSleep = (range: RangeId): Promise<SleepNight[]> => cached(`slee
 export const loadWorkouts = (range: RangeId): Promise<HealthWorkout[]> => cached(`workouts|${range}`, async () => (await api.workouts({ days: rangeDays(range), limit: 2000 })).workouts)
 /** Every kind the hub holds, with its sample count, first and newest time, aggregation, and unit. */
 export const loadKinds = (): Promise<HealthKind[]> => cached('kinds', async () => (await api.healthKinds()).kinds)
+
+/** The first and the newest day (yyyy-mm-dd) of a kind on the hub. */
+export interface Coverage { first: string; newest: string }
+/** Null when the hub holds no row of the kind. */
+export function coverage(kinds: HealthKind[], kind: string): Coverage | null {
+  const k = kinds.find(x => x.kind === kind)
+  if (!k) return null
+  const newest = todayYmd(new Date(k.newest_end_unix * 1000))
+  return { first: k.first_start_unix != null ? todayYmd(new Date(k.first_start_unix * 1000)) : newest, newest }
+}
+/** The one wording for a period with nothing in it: it names the dates that do have data. `null`: the hub holds none. `undefined`: the dates are not known. */
+export function noDataText(c: Coverage | null | undefined): string {
+  if (c === null) return t('common.no_data_hub')
+  if (!c) return t('common.no_data_period')
+  const day = (ymd: string) => fullDateOf(parseYmd(ymd) ?? 0)
+  return t('common.no_data_period_has', { first: day(c.first), newest: day(c.newest) })
+}
 
 /** A value that loads, for a component. `data` keeps the last result while the next one loads, so a chart can morph. */
 export interface Resource<T> { readonly loading: boolean; readonly error: string; readonly data: T | null }

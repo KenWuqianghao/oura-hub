@@ -4,7 +4,7 @@
   import Num from '../Num.svelte'
   import Skeleton from '../Skeleton.svelte'
   import { chart } from '../../lib/charts'
-  import { daily } from '../../lib/health.svelte'
+  import { daily, noDataText } from '../../lib/health.svelte'
   import { kindInfo, kindTitle, unitLabel } from '../../lib/kinds'
   import { bucketize, stats, windowOf, type RangeId } from '../../lib/range'
   import { dayBarsOption } from '../../lib/activity-charts'
@@ -36,7 +36,7 @@
       <Skeleton {height} />
     {:else}
       <div use:chart={{ option }} class="canvas" class:dim={res.loading} style="height: {height}px"></div>
-      {#if !inWindow.length}<div class="state">{t('common.no_data_range')}</div>{/if}
+      {#if !inWindow.length}<div class="state">{noDataText(undefined)}</div>{/if}
     {/if}
   </div>
 </figure>

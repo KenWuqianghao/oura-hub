@@ -3,15 +3,14 @@
   import Section from '../components/Section.svelte'
   import RangePicker from '../components/RangePicker.svelte'
   import MetricChart from '../components/MetricChart.svelte'
-  import OutOfRange from '../components/activity/OutOfRange.svelte'
+  import OutOfRange from '../components/OutOfRange.svelte'
   import HeartLead from '../components/heart/HeartLead.svelte'
   import HeartRange from '../components/heart/HeartRange.svelte'
   import RingWatch from '../components/heart/RingWatch.svelte'
   import Events from '../components/heart/Events.svelte'
-  import { healthKinds } from '../lib/health.svelte'
+  import { healthKinds, coverage } from '../lib/health.svelte'
   import { hub } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
-  import { coverage } from '../lib/activity'
   import { windowOf, type RangeId } from '../lib/range'
 
   const REST = ['resting_heart_rate', 'hrv_sdnn']

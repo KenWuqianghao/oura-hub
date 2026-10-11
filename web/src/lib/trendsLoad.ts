@@ -4,8 +4,7 @@
 import { api, type DayPoint } from './api'
 import { loadDaily, type Daily } from './health.svelte'
 import { kindInfo } from './kinds'
-import { windowOf, type RangeId } from './range'
-import { windowBefore } from './trends'
+import { windowBefore, windowOf, type RangeId } from './range'
 
 export interface KindTrend { kind: string; range: RangeId; series: Daily; before: DayPoint[] | null }
 

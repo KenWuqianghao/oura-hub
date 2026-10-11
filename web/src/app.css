@@ -136,6 +136,8 @@ h2 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px
 .large-title { font-size: 34px; line-height: 1.12; font-weight: 700; letter-spacing: -0.022em; margin: 0; }
 .page-head .sub { margin: 6px 0 0; max-width: 68ch; }
 .lede { font-size: 24px; line-height: 1.35; font-weight: 500; letter-spacing: -0.015em; max-width: 34ch; margin: 10px 0 0; }
+/* a sentence in plain words inside a section; the page's own lead sentence is `.lede` */
+.say { font-size: 17px; line-height: 1.4; margin: 0 0 14px; max-width: 68ch; min-height: 1.4em; }
 .sub { color: var(--ash); }
 .muted { color: var(--mute); }
 .small { font-size: 13px; }

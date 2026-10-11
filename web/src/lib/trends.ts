@@ -2,7 +2,7 @@
 // left, the range a kind opens on, and the comparison with the period before.
 import type { DayPoint, HealthKind } from './api'
 import { GROUPS, KINDS, kindInfo, kindTitle, groupTitle, unitLabel, type Group, type ColorToken } from './kinds'
-import { RANGES, rangeDays, spanDays, type RangeId } from './range'
+import type { RangeId } from './range'
 import { RING, ringMetric, type RingMetric } from './trendsRing'
 import { t } from './i18n.svelte'
 import * as F from './fmt'
@@ -56,19 +56,6 @@ export function listGroups(kinds: HealthKind[], query: string): ListGroup[] {
   return groups.map(g => ({ ...g, items: g.items.filter(keep) })).filter(g => g.items.length)
 }
 
-/** The range a kind opens on: the user's range, or the first longer one that reaches the newest row of the kind. */
-export function fitRange(picked: RangeId, newestUnix: number, now = new Date()): RangeId {
-  const age = spanDays(F.todayYmd(new Date(newestUnix * 1000)), F.todayYmd(now))
-  const from = RANGES.findIndex(r => r.id === picked)
-  return RANGES.find((r, i) => i >= from && r.days >= age)?.id ?? 'All'
-}
-
-/** The window of the same length that ends on the day before `start`. "All" has no period before it. */
-export function windowBefore(range: RangeId, start: string): { start: string; end: string } | null {
-  if (range === 'All') return null
-  return { start: F.addDays(start, -rangeDays(range)), end: F.addDays(start, -1) }
-}
-
 export interface Comparison { now: number; before: number; direction: 'up' | 'down' | 'same' }
 /** The mean of the days with data in a period against the period before, or null when one of the two has no data. `same` means the two read the same at `decimals`. */
 export function compare(now: DayPoint[], before: DayPoint[], decimals: number): Comparison | null {
@@ -84,6 +71,6 @@ export function comparisonText(c: Comparison, range: Exclude<RangeId, 'All'>, ad
   const value = (v: number) => [F.num(v, decimals), unit].filter(Boolean).join(' ')
   return t(`trends.cmp_${c.direction}`, {
     what: t(adds ? 'trends.cmp_daily_average' : 'trends.cmp_average'),
-    period: t(`trends.period_${range}`), before: t(`trends.before_${range}`), now: value(c.now), prev: value(c.before),
+    period: t(`common.period_${range}`), before: t(`common.before_${range}`), now: value(c.now), prev: value(c.before),
   })
 }

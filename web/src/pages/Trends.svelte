@@ -12,10 +12,10 @@
   import { untrack } from 'svelte'
   import { hub } from '../lib/store.svelte'
   import { healthKinds } from '../lib/health.svelte'
-  import { select, fitRange } from '../lib/trends'
+  import { select } from '../lib/trends'
   import { ringRanges } from '../lib/trendsRing'
   import { kindInfo, kindTitle, kindAbout } from '../lib/kinds'
-  import type { RangeId } from '../lib/range'
+  import { fitRange, type RangeId } from '../lib/range'
   import { t } from '../lib/i18n.svelte'
   import * as F from '../lib/fmt'
 

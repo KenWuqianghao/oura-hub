@@ -1,7 +1,6 @@
 // Chart options of the Heart page: the daily heart rate range, and the ring's
 // nightly low against the Watch's resting heart rate.
-import { base, tokens, axisChrome, axisLabel, xTime, yValue, tipHead, tipRow, type Option } from './charts'
-import { markLabel } from './activity-charts'
+import { base, tokens, axisChrome, axisLabel, bucketAxis, bucketLabel, bucketTip, fitAxis, xTime, yValue, tipHead, tipRow, tipNone, tipSwatch, type Option } from './charts'
 import { withBreaks } from './heart'
 import { t } from './i18n.svelte'
 import type { Buckets } from './range'
@@ -11,18 +10,18 @@ import * as F from './fmt'
 /** One bar per mark from the lowest to the highest heart rate, with a dot at the mean. A mark with no data stays empty. */
 export function heartRangeOption(buckets: Buckets): Option {
   const tk = tokens(), pts = buckets.points
-  const label = (i: number, long: boolean) => markLabel(pts[i], buckets.size, pts.length, long)
+  const lows = pts.flatMap(p => p.min == null ? [] : [p.min]), highs = pts.flatMap(p => p.max == null ? [] : [p.max])
   return {
     ...base(),
     grid: { left: 8, right: 12, top: 14, bottom: 4, containLabel: true },
-    xAxis: { type: 'category', data: pts.map((_, i) => label(i, false)), ...axisChrome(), splitLine: { show: false }, axisLabel: { ...axisLabel(), hideOverlap: true, interval: pts.length <= 7 ? 0 : 'auto' } },
-    yAxis: { type: 'value', scale: true, splitNumber: 4, ...axisChrome() },
-    tooltip: { ...(base().tooltip as object), axisPointer: { type: 'shadow', shadowStyle: { color: tk.band } }, formatter: (params: unknown) => {
-      const i: number = (Array.isArray(params) ? params[0] : params).dataIndex, p = pts[i]
+    xAxis: bucketAxis(pts, buckets.size),
+    yAxis: { type: 'value', scale: true, ...axisChrome(), ...(lows.length ? fitAxis(Math.min(...lows), Math.max(...highs)) : {}) },
+    tooltip: bucketTip(i => {
+      const p = pts[i]
       if (!p) return ''
-      if (p.value == null) return tipHead(label(i, true)) + `<div style="color:${tk.ash}">${t('common.no_data')}</div>`
-      return tipHead(label(i, true)) + tipRow(`${F.num(p.min)}–${F.num(p.max)}`, 'bpm') + tipRow(F.num(p.value), t(buckets.size === 'day' ? 'heart.tip_mean' : 'heart.tip_mean_days'))
-    } },
+      if (p.value == null) return tipHead(bucketLabel(p, buckets.size)) + tipNone()
+      return tipHead(bucketLabel(p, buckets.size)) + tipRow(`${F.num(p.min)}–${F.num(p.max)}`, 'bpm') + tipRow(F.num(p.value), t(buckets.size === 'day' ? 'heart.tip_mean' : 'heart.tip_mean_days'))
+    }),
     series: [{
       id: 'v', type: 'custom', data: pts.map((p, i) => [i, p.min, p.max, p.value]), encode: { x: 0, y: [1, 2] },
       renderItem: (_: unknown, api: any) => {
@@ -54,7 +53,7 @@ export function ringWatchOption(ring: TrendPoint[], watch: DayPoint[], start: st
       const list = (Array.isArray(params) ? params : [params]) as { value: [number, number | null]; seriesName: string; color: string }[]
       const rows = list.filter(p => p.value[1] != null)
       if (!rows.length) return ''
-      return tipHead(F.fullDateOf(rows[0].value[0])) + rows.map(p => `<div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:${p.color}"></span><b>${F.num(p.value[1])}</b> <span style="color:${tk.ash}">bpm · ${p.seriesName}</span></div>`).join('')
+      return tipHead(F.fullDateOf(rows[0].value[0])) + rows.map(p => tipSwatch(p.color, F.num(p.value[1]), `bpm · ${p.seriesName}`, true)).join('')
     } },
     series: [line('ring', t('heart.ring_low'), tk.ring, ring.filter(p => p.ymd >= start)), line('watch', t('heart.watch_rest'), tk.watch, watch.filter(p => p.ymd >= start))],
   }

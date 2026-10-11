@@ -4,21 +4,23 @@
   import MetricChart from '../MetricChart.svelte'
   import RangePicker from '../RangePicker.svelte'
   import ErrorNote from '../ErrorNote.svelte'
+  import NoData from '../NoData.svelte'
   import TrendHead from './TrendHead.svelte'
   import TrendFacts, { type Fact } from './TrendFacts.svelte'
   import TrendTable from './TrendTable.svelte'
   import type { HealthKind } from '../../lib/api'
-  import { resource } from '../../lib/health.svelte'
+  import { resource, healthKinds, coverage } from '../../lib/health.svelte'
   import { loadKindTrend } from '../../lib/trendsLoad'
-  import { compare, comparisonText, fitRange } from '../../lib/trends'
+  import { compare, comparisonText } from '../../lib/trends'
   import { kindInfo, kindTitle, kindAbout, unitLabel } from '../../lib/kinds'
-  import { addsUp, spanDays, stats, windowOf, type RangeId } from '../../lib/range'
+  import { addsUp, fitRange, spanDays, stats, windowOf, type RangeId } from '../../lib/range'
   import { t } from '../../lib/i18n.svelte'
   import * as F from '../../lib/fmt'
 
   let { kind, meta, range, onrange }: { kind: string; meta: HealthKind; range: RangeId; onrange: (range: RangeId) => void } = $props()
 
   const res = resource(() => loadKindTrend(kind, range))
+  const held = healthKinds()
   const data = $derived(res.data?.kind === kind ? res.data : null)
   const info = $derived(kindInfo(kind))
   // what is on screen: it follows the picker only when the new data is there
@@ -49,25 +51,18 @@
   <RangePicker value={range} onchange={onrange} />
 </TrendHead>
 
-<p class="sentence" class:dim>
-  {#if empty}
-    {t('trends.empty_range', { period: t(`trends.period_${shown === 'All' ? 'Y' : shown}`), first: meta.first_start_unix != null ? dateOf(meta.first_start_unix) : '—', newest: dateOf(meta.newest_end_unix) })}
-    {#if reach !== shown}<button class="btn" onclick={() => onrange(reach)}>{t(`common.range_${reach}_title`)}</button>{/if}
-  {:else}{sentence}{/if}
-</p>
+<p class="say" class:dim>{#if empty}<NoData span={held.data ? coverage(held.data, kind) : undefined} reach={reach !== shown ? reach : undefined} onreach={onrange} />{:else}{sentence}{/if}</p>
 
 {#if res.error && !data}
   <ErrorNote message={res.error} />
 {:else}
-  <div class="chart" class:dim><MetricChart {kind} {range} series={data?.series} stat="average" title={false} height={340} /></div>
+  <div class="chart"><MetricChart {kind} range={shown} series={data?.series ?? null} stat="average" title={false} height={340} loading={res.loading} /></div>
   <TrendFacts {facts} {dim} />
   {#key kind}<div class="days"><TrendTable days={inWindow} mean={st.mean} decimals={info.decimals} {unit} {dim} /></div>{/key}
 {/if}
 
 <style>
-  .sentence { margin: 14px 0 16px; min-height: 22px; font-size: 16px; max-width: 72ch; transition: opacity var(--dur) ease; }
-  .sentence .btn { display: flex; margin-top: 8px; padding: 3px 10px; font-size: 13px; }
-  .chart { transition: opacity var(--dur) ease; }
+  .say { margin: 14px 0 16px; transition: opacity var(--dur) ease; }
   .dim { opacity: 0.55; }
   .days { margin-top: 20px; }
 </style>

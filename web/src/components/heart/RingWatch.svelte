@@ -1,10 +1,9 @@
 <script lang="ts">
   // The ring's lowest heart rate of each night against the Watch's resting heart
   // rate of the same day, on one axis. The window starts at the ring's first night.
-  import Skeleton from '../Skeleton.svelte'
+  import ChartFrame from '../ChartFrame.svelte'
   import { api, type Trends } from '../../lib/api'
-  import { loadDaily, resource } from '../../lib/health.svelte'
-  import { chart } from '../../lib/charts'
+  import { loadDaily, resource, noDataText } from '../../lib/health.svelte'
   import { windowOf, type RangeId } from '../../lib/range'
   import { lowestPerDay, paired } from '../../lib/heart'
   import { ringWatchOption } from '../../lib/heart-charts'
@@ -36,35 +35,8 @@
   })
 </script>
 
-<figure class="panel ring-watch" aria-busy={res.loading}>
-  <figcaption>
-    <p class="say">{sentence || ' '}</p>
-    <div class="when">
-      <span>{view ? F.dateRange(view.start, view.end) : ' '}{view?.clipped ? ` · ${t('heart.from_first_night')}` : ''}</span>
-      <span class="legend"><span><span class="ln" style="background: var(--ring)"></span>{t('heart.ring_low')}</span><span><span class="ln" style="background: var(--watch)"></span>{t('heart.watch_rest')}</span></span>
-    </div>
-  </figcaption>
-  <div class="plot" style="height: {height}px">
-    {#if res.error && !view}
-      <div class="state">{res.error}</div>
-    {:else if !option}
-      <Skeleton {height} />
-    {:else}
-      <div use:chart={{ option }} class="canvas" class:dim={res.loading} style="height: {height}px"></div>
-      {#if view && !view.ring.length && !view.watch.length}<div class="state">{t('common.no_data_range')}</div>{/if}
-    {/if}
-  </div>
-  <p class="foot">{t('heart.pair_note')}</p>
-</figure>
-
-<style>
-  .ring-watch { margin: 0; padding: 16px 10px 12px; }
-  figcaption { padding: 0 8px 6px; }
-  .say { margin: 0 0 6px; font-size: 17px; font-weight: 500; letter-spacing: -0.01em; max-width: 70ch; min-height: 1.45em; }
-  .when { font-size: 13px; color: var(--ash); display: flex; flex-wrap: wrap; gap: 4px 16px; justify-content: space-between; min-height: 19px; }
-  .plot { position: relative; }
-  .canvas { width: 100%; transition: opacity var(--dur) ease; }
-  .canvas.dim { opacity: 0.55; }
-  .state { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--mute); font-size: 13px; pointer-events: none; }
-  .foot { margin: 8px 8px 0; font-size: 13px; color: var(--ash); max-width: 90ch; }
-</style>
+<p class="say">{sentence || ' '}</p>
+<ChartFrame when={view ? `${F.dateRange(view.start, view.end)}${view.clipped ? ` · ${t('heart.from_first_night')}` : ''}` : ' '} {height} option={option ?? undefined} ready={!!option} loading={res.loading} error={res.error}
+  empty={view && !view.ring.length && !view.watch.length ? noDataText(undefined) : ''} note={t('heart.pair_note')}>
+  {#snippet legend()}<span><span class="ln" style="background: var(--ring)"></span>{t('heart.ring_low')}</span><span><span class="ln" style="background: var(--watch)"></span>{t('heart.watch_rest')}</span>{/snippet}
+</ChartFrame>

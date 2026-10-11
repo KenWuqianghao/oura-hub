@@ -4,20 +4,18 @@
   import RangePicker from '../components/RangePicker.svelte'
   import MetricChart from '../components/MetricChart.svelte'
   import KV from '../components/KV.svelte'
-  import Num from '../components/Num.svelte'
   import Empty from '../components/Empty.svelte'
   import ErrorNote from '../components/ErrorNote.svelte'
   import Skeleton from '../components/Skeleton.svelte'
-  import ChartFigure from '../components/nutrition/ChartFigure.svelte'
+  import ChartFrame from '../components/ChartFrame.svelte'
   import MacroSplit from '../components/nutrition/MacroSplit.svelte'
   import NutrientTable from '../components/nutrition/NutrientTable.svelte'
   import LogCalendar from '../components/nutrition/LogCalendar.svelte'
-  import { dailyAll, refreshHealth } from '../lib/health.svelte'
+  import { dailyAll, refreshHealth, noDataText } from '../lib/health.svelte'
   import { bucketize, windowOf, type RangeId } from '../lib/range'
   import { kindTitle } from '../lib/kinds'
   import { ENERGY, BURNED_KINDS, DIET_KINDS, MACROS, NUTRIENTS, within, meanOf, defaultRange, burnedOnLoggedDays, balance, macroEnergy, macroSplit, nutrientRows, logCalendar, type Series } from '../lib/nutrition'
   import { energyOption, macroOption, macroCss } from '../lib/nutrition-charts'
-  import type { DailySeries } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
   import * as F from '../lib/fmt'
 
@@ -30,13 +28,12 @@
   const byKind = $derived(new Map((diet.data ?? []).map(s => [s.kind, s])))
   const series: Series = kind => byKind.get(kind)?.days ?? []
   const unit = (kind: string) => byKind.get(kind)?.unit ?? ''
-  // without the range of the load: `MetricChart` then follows the range control
-  const plain = (kind: string): DailySeries | undefined => { const s = byKind.get(kind); return s && { kind: s.kind, agg: s.agg, unit: s.unit, days: s.days } }
   const held = (kind: string) => series(kind).length > 0
   const dateOf = (ymd: string) => F.fullDateOf(F.dayStartMs(ymd))
-  const span = (kind: string) => ({ first: dateOf(series(kind)[0].ymd), last: dateOf(series(kind).at(-1)!.ymd) })
+  const span = (kind: string) => ({ first: series(kind)[0].ymd, newest: series(kind).at(-1)!.ymd })
 
   const logged = $derived(series(ENERGY))
+  const emptyText = $derived(logged.length ? noDataText({ first: logged[0].ymd, newest: logged.at(-1)!.ymd }) : '')
   let picked = $state<RangeId | null>(null)
   const range = $derived(picked ?? defaultRange(logged, today))
   const win = $derived(windowOf(range, [...logged]))
@@ -80,12 +77,11 @@
   {:else}
     <Section title={t('nutrition.energy')}>
       <div class="cols cols-2-1">
-        <ChartFigure name={t('nutrition.energy_name')} ink="--c-nutrition-ink" label={t('nutrition.per_logged_day')} {when} height={260} option={energy} ready={!!diet.data} empty={diet.data && !days.length ? t('common.no_data_range') : ''}>
-          {#snippet value()}<Num value={meanOf(days)} /><small>kcal</small>{/snippet}
+        <ChartFrame title={t('nutrition.energy_name')} color="--c-nutrition" label={t('nutrition.per_logged_day')} value={meanOf(days)} unit="kcal" {when} height={260} option={energy} ready={!!diet.data} empty={diet.data && !days.length ? emptyText : ''}>
           {#snippet legend()}<span><span class="sw" style="background: var(--c-nutrition)"></span>{t('nutrition.legend_intake')}</span><span><span class="ln marker"></span>{t('nutrition.legend_burned')}</span>{/snippet}
-        </ChartFigure>
+        </ChartFrame>
         <div>
-          <p class="say">
+          <p class="say balance">
             {#if !out.data}{out.error || t('nutrition.burned_loading')}
             {:else if !bal}{t('nutrition.balance_none')}
             {:else}{t(bal.intake >= bal.burned ? 'nutrition.balance_more' : 'nutrition.balance_less', { n: F.num(bal.days), in: F.num(bal.intake), out: F.num(bal.burned), diff: F.num(Math.abs(bal.intake - bal.burned)) })}{/if}
@@ -104,10 +100,9 @@
 
     <Section title={t('nutrition.macros')}>
       <div class="cols cols-2-1">
-        <ChartFigure name={t('nutrition.macros_name')} ink="--c-nutrition-ink" label={t('nutrition.macros_label')} {when} height={260} option={macros} ready={!!diet.data} empty={diet.data && !split.days ? t('common.no_data_range') : ''}>
-          {#snippet value()}<Num value={split.kcal} /><small>kcal</small>{/snippet}
+        <ChartFrame title={t('nutrition.macros_name')} color="--c-nutrition" label={t('nutrition.macros_label')} value={split.kcal} unit="kcal" {when} height={260} option={macros} ready={!!diet.data} empty={diet.data && !split.days ? emptyText : ''}>
           {#snippet legend()}{#each MACROS as m (m.kind)}<span><span class="sw" style="background: {macroCss(m.kind)}"></span>{kindTitle(m.kind)}</span>{/each}{/snippet}
-        </ChartFigure>
+        </ChartFrame>
         <div>
           <div class="eyebrow">{t('nutrition.split')} <span class="aside">{t('nutrition.split_days', { n: F.num(split.days) })}</span></div>
           <MacroSplit {split} {held} />
@@ -138,9 +133,9 @@
           {#if !diet.data}
             <Skeleton height={300} />
           {:else if within(series(kind), win).length}
-            <MetricChart {kind} {range} series={plain(kind)} height={180} />
+            <MetricChart {kind} {range} series={byKind.get(kind) ?? null} height={180} />
           {:else}
-            <p class="note">{held(kind) ? t('nutrition.kind_none', { kind: kindTitle(kind), ...span(kind) }) : t('nutrition.kind_never', { kind: kindTitle(kind) })}</p>
+            <p class="note">{t('nutrition.kind_none', { kind: kindTitle(kind), text: noDataText(held(kind) ? span(kind) : null) })}</p>
           {/if}
         {/each}
       </div>
@@ -161,7 +156,7 @@
 
 <style>
   .lead { max-width: 46ch; min-height: 2.7em; margin-top: 18px; }
-  .say { margin: 4px 0 14px; font-size: 17px; line-height: 1.4; min-height: 4.2em; }
+  .balance { min-height: 4.2em; }
   .source { margin: 0 0 16px; max-width: 96ch; }
   .note-text { margin: 14px 0 0; max-width: 72ch; }
   .note { margin: 0 0 16px; align-self: center; }

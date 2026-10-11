@@ -11,7 +11,7 @@
   const res = dailyAll(() => ['resting_heart_rate', 'hrv_sdnn'], () => range)
   const text = $derived.by(() => {
     if (!res.data) return ''
-    const period = t(`activity.period_${res.data[0].range}`)
+    const period = t(`common.period_${res.data[0].range}`)
     return (['rhr', 'hrv'] as const).map((id, i) => {
       const s = res.data![i], win = windowOf(s.range, s.days)
       const a = against(s.days.filter(d => d.ymd >= win.start && d.ymd <= win.end))

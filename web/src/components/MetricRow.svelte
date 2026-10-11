@@ -5,7 +5,7 @@
   import { ChevronRight } from 'lucide-svelte'
   import Num from './Num.svelte'
   import Spark from './Spark.svelte'
-  import { daily } from '../lib/health.svelte'
+  import { daily, noDataText } from '../lib/health.svelte'
   import { kindInfo, kindTitle, unitLabel } from '../lib/kinds'
   import { bucketize, windowOf, type RangeId } from '../lib/range'
   import { headline, type StatChoice } from '../lib/metric'
@@ -23,7 +23,7 @@
 
 <a class="metric-row" href={href ?? `#/trends/${kind}`} aria-busy={res.loading}>
   <span class="title">{kindTitle(kind)}</span>
-  <span class="what">{res.error ? res.error : data && !inWindow.length ? t('common.no_data_range') : t(head.label)}</span>
+  <span class="what">{res.error ? res.error : data && !inWindow.length ? noDataText(undefined) : t(head.label)}</span>
   <Spark {values} type={info.chart === 'bar' ? 'bar' : 'line'} color="var({info.color})" />
   <span class="value"><Num value={head.value} decimals={info.decimals} />{#if head.to != null}–<Num value={head.to} decimals={info.decimals} />{/if}{#if data?.unit}<small>{unitLabel(data.unit)}</small>{/if}</span>
   <ChevronRight size={14} />

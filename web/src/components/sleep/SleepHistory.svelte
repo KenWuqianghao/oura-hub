@@ -7,13 +7,14 @@
   import Skeleton from '../Skeleton.svelte'
   import ErrorNote from '../ErrorNote.svelte'
   import SleepNightsTable from './SleepNightsTable.svelte'
-  import { chart } from '../../lib/charts'
-  import { resource, healthKinds } from '../../lib/health.svelte'
+  import ChartFrame from '../ChartFrame.svelte'
+  import Duration from '../Duration.svelte'
+  import NoData from '../NoData.svelte'
+  import { resource, healthKinds, coverage, noDataText } from '../../lib/health.svelte'
   import { loadSleepHistory } from '../../lib/sleepLoad'
   import { classify, sleepFacts, stageMarks, scheduleMarks } from '../../lib/sleepHistory'
   import { stagesOption, scheduleOption, segmentsIn, segmentStyle, clock, SEGMENT_LABEL } from '../../lib/sleepCharts'
-  import { fitRange } from '../../lib/trends'
-  import { windowOf, type RangeId } from '../../lib/range'
+  import { fitRange, windowOf, type RangeId } from '../../lib/range'
   import { t } from '../../lib/i18n.svelte'
   import * as F from '../../lib/fmt'
 
@@ -29,18 +30,20 @@
   const before = $derived(data?.before ? sleepFacts(classify(data.before)) : null)
   const stages = $derived(stageMarks(nights, win.start, win.end))
   const schedule = $derived(scheduleMarks(nights, win.start, win.end))
-  const legend = $derived(segmentsIn(stages))
+  const drawn = $derived(segmentsIn(stages))
   const dim = $derived(res.loading && !!data)
   // the kind list knows how far back sleep goes, for a period with no night in it
   const meta = $derived(kinds.data?.find(k => k.kind === 'sleep_analysis'))
   const reach = $derived(meta ? fitRange(shown, meta.newest_end_unix) : shown)
-  const dateOf = (unix: number) => F.fullDateOf(unix * 1000)
+  const span = $derived(kinds.data ? coverage(kinds.data, 'sleep_analysis') : undefined)
+  const when = $derived(`${F.dateRange(win.start, win.end)} · ${t(`sleep.per_${stages.size}`)}`)
+  const empty = $derived(nights.length ? '' : noDataText(span))
 
   const lead = $derived.by(() => {
     if (facts.meanAsleep == null) return ''
     const mean = F.minutesText(facts.meanAsleep)
     if (shown === 'All') return t('sleep.lead_all', { n: F.num(facts.nights), mean })
-    const period = t(`trends.period_${shown}`), prev = t(`trends.before_${shown}`)
+    const period = t(`common.period_${shown}`), prev = t(`common.before_${shown}`)
     if (before?.meanAsleep == null) return t('sleep.lead_only', { period, mean })
     const diff = Math.round(facts.meanAsleep) - Math.round(before.meanAsleep)
     return t(diff > 0 ? 'sleep.lead_more' : diff < 0 ? 'sleep.lead_less' : 'sleep.lead_same', { period, mean, before: prev, diff: F.minutesText(Math.abs(diff)) })
@@ -59,7 +62,6 @@
     [t('sleep.nights_counted'), F.num(facts.nights)],
     [t('sleep.sources'), facts.sources.map(([name, n]) => `${name} ${F.num(n)}`).join(t('common.list_sep')) || null],
   ] as const)
-  const per = $derived(t(`sleep.per_${stages.size}`))
 </script>
 
 <section class="section" id="sleep-history">
@@ -74,29 +76,17 @@
   {:else if !data}
     <Skeleton height={28} width="60%" /><div style="height: 20px"></div><Skeleton height={2 * HEIGHT + 150} />
   {:else}
-    <p class="lead" class:dim>
-      {#if nights.length}{lead}{:else}
-        {t('sleep.none_in_range', { period: t(`trends.period_${shown === 'All' ? 'Y' : shown}`) })}
-        {#if meta?.first_start_unix != null}{t('sleep.has_from', { first: dateOf(meta.first_start_unix), newest: dateOf(meta.newest_end_unix) })}{/if}
-        {#if reach !== shown}<button class="btn" onclick={() => (range = reach)}>{t(`common.range_${reach}_title`)}</button>{/if}
-      {/if}
-    </p>
+    <p class="say" class:dim>{#if nights.length}{lead}{:else}<NoData {span} reach={reach !== shown ? reach : undefined} onreach={r => (range = r)} />{/if}</p>
     <div class="cols cols-1-3">
       <div class="facts" class:dim><KV {rows} /></div>
       <div class="stack">
-        <figure class="panel" class:dim>
-          <figcaption>
-            <div class="name">{t('sleep.asleep_title')} <span class="per">{per}</span></div>
-            <div class="legend">{#each legend as s (s)}{@const st = segmentStyle(s)}<span><span class="sw" style="background: {st.color}; {st.borderColor ? `box-shadow: inset 0 0 0 1px ${st.borderColor}` : ''}"></span>{t(SEGMENT_LABEL[s])}</span>{/each}</div>
-          </figcaption>
-          <div use:chart={{ option: stagesOption(stages, facts.meanAsleep) }} style="height: {HEIGHT}px"></div>
-        </figure>
-        <figure class="panel" class:dim>
-          <figcaption>
-            <div class="name">{t('sleep.schedule_title')} <span class="per">{per}</span></div>
-          </figcaption>
-          <div use:chart={{ option: scheduleOption(schedule, facts.meanBed, facts.meanWake) }} style="height: {HEIGHT}px"></div>
-        </figure>
+        <ChartFrame title={t('sleep.asleep_title')} color="--c-sleep" label={t('sleep.label_asleep')} {when} height={HEIGHT} option={stagesOption(stages, facts.meanAsleep)} loading={dim} {empty}>
+          {#snippet number()}<Duration minutes={facts.meanAsleep} />{/snippet}
+          {#snippet legend()}{#each drawn as s (s)}{@const st = segmentStyle(s)}<span><span class="sw" style="background: {st.color}; {st.borderColor ? `box-shadow: inset 0 0 0 1px ${st.borderColor}` : ''}"></span>{t(SEGMENT_LABEL[s])}</span>{/each}{/snippet}
+        </ChartFrame>
+        <ChartFrame title={t('sleep.schedule_title')} color="--c-sleep" label={t('sleep.label_schedule')} {when} height={HEIGHT} option={scheduleOption(schedule, facts.meanBed, facts.meanWake)} loading={dim} {empty}>
+          {#snippet number()}{#if facts.meanBed != null && facts.meanWake != null}<span class="num">{clock(facts.meanBed)} – {clock(facts.meanWake)}</span>{:else}—{/if}{/snippet}
+        </ChartFrame>
       </div>
     </div>
     <div class="notes small sub">
@@ -112,15 +102,9 @@
   section { scroll-margin-top: 60px; }
   .eyebrow { flex-wrap: wrap; row-gap: 8px; }
   .title { color: var(--c-sleep-ink); white-space: nowrap; }
-  .lead { font-size: 20px; line-height: 1.4; font-weight: 500; letter-spacing: -0.01em; max-width: 46ch; margin: 0 0 22px; min-height: 56px; }
-  :global(:lang(zh)) .lead { letter-spacing: 0; }
-  .lead .btn { display: flex; margin-top: 8px; font-size: 13px; padding: 3px 10px; }
-  .lead, .facts, figure { transition: opacity var(--dur) ease; }
+  .say { margin-bottom: 20px; min-height: 2.8em; }
+  .say, .facts { transition: opacity var(--dur) ease; }
   .dim { opacity: 0.55; }
-  figure { margin: 0; padding: 14px 10px 10px; }
-  figcaption { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 16px; padding: 0 8px 4px; min-height: 28px; }
-  .name { font-weight: 600; font-size: 15px; color: var(--c-sleep-ink); }
-  .per { font-weight: 400; font-size: 13px; color: var(--ash); margin-left: 6px; }
   .notes { max-width: 96ch; margin-top: 16px; }
   .notes p { margin: 0 0 4px; }
   .log { margin-top: 20px; }
