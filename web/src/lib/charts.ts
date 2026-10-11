@@ -121,6 +121,26 @@ export function bucketAxis(points: { start: string }[], size: BucketSize, extra:
   }
 }
 
+/** An axis number in little room: "6.5K", "1.2万". */
+export const compact = (v: number, decimals = 0) => new Intl.NumberFormat(intlTag(), { notation: 'compact', maximumFractionDigits: Math.abs(v) < 10 ? Math.max(decimals, 1) : 1 }).format(v)
+
+/**
+ * A y axis that fits the values from `lo` to `hi` with a little room, on round
+ * numbers, in about three steps. One value alone gets a narrow axis around it, not
+ * an axis from zero. For lines and range bars; a bar axis starts at zero.
+ */
+export function fitAxis(lo: number | null, hi: number | null, decimals = 0): { min?: number; max?: number; interval?: number } {
+  if (lo == null || hi == null || !Number.isFinite(lo) || !Number.isFinite(hi)) return {}
+  const unit = 10 ** -decimals
+  const pad = Math.max((hi - lo) * 0.12, Math.abs(hi) * 0.02, unit)
+  const raw = (hi - lo + 2 * pad) / 3, pow = 10 ** Math.floor(Math.log10(raw))
+  const step = Math.max(unit, [1, 2, 2.5, 5, 10].map(m => m * pow).find(s => s >= raw) ?? raw)
+  // the step is a float product: round the ends to the step's own digits
+  const digits = Math.max(0, -Math.floor(Math.log10(step)) + 1), round = (v: number) => +v.toFixed(digits)
+  const min = round(Math.floor((lo - pad) / step) * step)
+  return { min: lo >= 0 ? Math.max(0, min) : min, max: round(Math.ceil((hi + pad) / step) * step), interval: step }
+}
+
 const list = (v: unknown): any[] => v == null ? [] : Array.isArray(v) ? v : [v]
 // The parts of an option that ECharts cannot merge in place: when one of them
 // changes, the chart is built again; when none does, the new data morphs in.

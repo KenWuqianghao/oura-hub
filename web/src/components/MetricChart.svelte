@@ -4,12 +4,12 @@
   // kind catalogue picks the chart and the colour; the loader brings the data.
   import Num from './Num.svelte'
   import Skeleton from './Skeleton.svelte'
-  import { chart, base, tokens, color as cssColor, axisChrome, axisLabel, bucketAxis, bucketLabel, tipHead, tipRow, type Option } from '../lib/charts'
+  import { chart, base, tokens, color as cssColor, axisChrome, axisLabel, bucketAxis, bucketLabel, compact, fitAxis, tipHead, tipRow, type Option } from '../lib/charts'
   import { resource, loadDaily } from '../lib/health.svelte'
   import { kindInfo, kindTitle, unitLabel, type ChartType } from '../lib/kinds'
   import { bucketize, bridge, rolling, stats, windowOf, MAX_GAP, type RangeId } from '../lib/range'
   import { headline, type StatChoice } from '../lib/metric'
-  import { t, intlTag } from '../lib/i18n.svelte'
+  import { t } from '../lib/i18n.svelte'
   import * as F from '../lib/fmt'
   import type { DailySeries } from '../lib/api'
 
@@ -48,7 +48,6 @@
   const trend = $derived(kindOf === 'line' && buckets.size === 'day' && inWindow.length > 7)
   const rangeText = $derived(F.dateRange(win.start, win.end))
 
-  const compact = (v: number) => new Intl.NumberFormat(intlTag(), { notation: 'compact', maximumFractionDigits: Math.abs(v) < 10 ? Math.max(info.decimals, 1) : 1 }).format(v)
 
   const option = $derived.by((): Option => {
     const tk = tokens(), col = cssColor(color ?? info.color), pts = buckets.points, dec = info.decimals
@@ -81,11 +80,17 @@
             } }
         : { id: 'v', type: 'line', data: joined.line.map((v, i) => joined.filled[i] ? { value: v, symbol: 'none' } : v), connectNulls: false, showSymbol: few, ...dot,
             lineStyle: { width: trend ? 1.25 : 2, color: col, opacity: trend ? 0.45 : 1 }, ...marks }
+    // a line or a range bar gets an axis around its values, with the reference lines in view; bars start at zero
+    const span = kindOf === 'bar' ? null : [
+      ...pts.flatMap(p => p.value == null ? [] : kindOf === 'range' ? [p.min ?? p.value, p.max ?? p.value] : [p.value]),
+      ...refs.map(r => r.value), ...bands.flatMap(b => [b.from, b.to]),
+    ]
     return {
       ...base(),
       grid: { left: 8, right: 12, top: 14, bottom: 4, containLabel: true },
       xAxis: bucketAxis(pts, buckets.size, { boundaryGap: kindOf !== 'line' }),
-      yAxis: { type: 'value', scale: kindOf !== 'bar', min: kindOf === 'bar' ? 0 : undefined, splitNumber: 3, ...axisChrome(), axisLabel: { ...axisLabel(), formatter: compact } },
+      yAxis: { type: 'value', splitNumber: 3, ...axisChrome(), axisLabel: { ...axisLabel(), formatter: (v: number) => compact(v, dec) },
+        ...(span ? { scale: true, ...(span.length ? fitAxis(Math.min(...span), Math.max(...span), dec) : {}) } : { min: 0 }) },
       tooltip: { ...(base().tooltip as object), axisPointer: { type: kindOf === 'line' ? 'line' : 'shadow', lineStyle: { color: tk.ruleStrong, width: 1 }, shadowStyle: { color: tk.band } },
         formatter: (params: any) => {
           const p = pts[(Array.isArray(params) ? params[0] : params).dataIndex]
