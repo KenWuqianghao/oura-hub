@@ -25,5 +25,6 @@
 <p class="lede">{text || ' '}</p>
 
 <style>
-  .lede { max-width: 56ch; min-height: 2.7em; }
+  /* three lines: the sentence with both comparisons wraps to three at 1440 px */
+  .lede { max-width: 56ch; min-height: 4.05em; }
 </style>

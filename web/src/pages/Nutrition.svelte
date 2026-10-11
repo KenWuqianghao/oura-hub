@@ -30,7 +30,6 @@
   const unit = (kind: string) => byKind.get(kind)?.unit ?? ''
   const held = (kind: string) => series(kind).length > 0
   const dateOf = (ymd: string) => F.fullDateOf(F.dayStartMs(ymd))
-  const span = (kind: string) => ({ first: series(kind)[0].ymd, newest: series(kind).at(-1)!.ymd })
 
   const logged = $derived(series(ENERGY))
   const emptyText = $derived(logged.length ? noDataText({ first: logged[0].ymd, newest: logged.at(-1)!.ymd }) : '')
@@ -113,15 +112,12 @@
 
     <Section title={t('nutrition.micros')}>
       <p class="sub source">{t('nutrition.source')}</p>
-      {#if diet.data && micro.length && !rows.some(r => r.nutrient.group !== 'other' && r.days)}
-        <p class="note">{t('nutrition.micros_none', { first: dateOf(micro[0]), last: dateOf(micro.at(-1)!) })}</p>
-      {/if}
       {#if diet.data}
         <div class="cols nutrients">
           <NutrientTable groups={['minerals', 'other']} {rows} {unit} />
           <NutrientTable groups={['vitamins']} {rows} {unit} />
         </div>
-        <p class="small sub note-text">{t('nutrition.no_ref_note')}{absent.length ? ` ${t('nutrition.not_in_log', { list: absent.join(t('common.list_sep')) })}` : ''}</p>
+        <p class="small sub note-text">{#if micro.length && !rows.some(r => r.nutrient.group !== 'other' && r.days)}{t('nutrition.micros_none', { first: dateOf(micro[0]), last: dateOf(micro.at(-1)!) })} {/if}{t('nutrition.no_ref_note')}{absent.length ? ` ${t('nutrition.not_in_log', { list: absent.join(t('common.list_sep')) })}` : ''}</p>
       {:else}
         <Skeleton height={18} lines={12} />
       {/if}
@@ -130,13 +126,7 @@
     <Section title={t('nutrition.water_caffeine')}>
       <div class="cols cols-2">
         {#each ['dietary_water', 'dietary_caffeine'] as kind (kind)}
-          {#if !diet.data}
-            <Skeleton height={300} />
-          {:else if within(series(kind), win).length}
-            <MetricChart {kind} {range} series={byKind.get(kind) ?? null} height={180} />
-          {:else}
-            <p class="note">{t('nutrition.kind_none', { kind: kindTitle(kind), text: noDataText(held(kind) ? span(kind) : null) })}</p>
-          {/if}
+          <MetricChart {kind} {range} series={!diet.data ? null : byKind.get(kind) ?? { kind, agg: 'sum', unit: '', days: [] }} height={180} />
         {/each}
       </div>
     </Section>
@@ -159,7 +149,6 @@
   .balance { min-height: 4.2em; }
   .source { margin: 0 0 16px; max-width: 96ch; }
   .note-text { margin: 14px 0 0; max-width: 72ch; }
-  .note { margin: 0 0 16px; align-self: center; }
   .nutrients { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   @media (max-width: 1240px) { .nutrients { grid-template-columns: minmax(0, 1fr); gap: 0; } }
   .marker { background: var(--c-activity); height: 3px; vertical-align: 3px; }
