@@ -30,16 +30,21 @@ VITE_HUB_URL=http://127.0.0.1:8787 npm run dev
 | `src/app.css` | Tokens and the shared classes |
 | `src/App.svelte` | The top bar and the routes (`#/<tab>/<param>`) |
 | `src/pages/` | One file for each page |
-| `src/components/` | Shared pieces: `PageHeader`, `Section`, `KV`, `Seg`, `Num`, `RangePicker`, `MetricChart`, `MetricRow`, `Spark`, `Empty`, `ErrorNote`, `Skeleton` |
+| `src/components/` | Shared pieces: `PageHeader`, `Section`, `KV`, `Seg`, `Num`, `Duration`, `RangePicker`, `ChartFrame`, `MetricChart`, `MetricRow`, `Spark`, `NoData`, `OutOfRange`, `Empty`, `ErrorNote`, `Skeleton` |
+| `src/components/<area>/` | The pieces of one page. An area must not import from another area. |
 | `src/i18n/<area>.ts` | The words of one area, in English and in Chinese |
 | `src/lib/i18n.svelte.ts` | `t(key, vars)`, the locale, `intlTag()` |
 | `src/lib/fmt.ts` | Dates, numbers, and durations through `Intl` |
 | `src/lib/kinds.ts` | The catalogue of Apple Health kinds: group, colour, decimals, chart type |
 | `src/lib/health.svelte.ts` | The cached loader for the Apple Health tools |
 | `src/lib/range.ts` | Time ranges and the bucket rule (pure) |
-| `src/lib/charts.ts` | The ECharts setup: `base()`, the `chart` action, tooltips |
+| `src/lib/charts.ts` | The ECharts setup: `base()`, the `chart` action, `bucketAxis`, `bucketLabel`, `fitAxis`, mark lines, tooltips |
 
-Open `#/kit` to see the shared pieces with real data.
+Read these pages as the examples:
+
+- `src/pages/Activity.svelte`: `MetricChart`, `MetricRow`, `OutOfRange`, and a page chart in a `ChartFrame`.
+- `src/pages/Body.svelte`: charts and tables from one load of all dates.
+- `src/components/trends/RingTrend.svelte`: `MetricChart` with a series of its own.
 
 ## How to add text
 
@@ -70,3 +75,16 @@ number, or a duration by hand: use `src/lib/fmt.ts`.
 Components that mount together send one request for their light kinds. A kind with
 very many rows (`heart_rate`, `active_energy`, `basal_energy`, `physical_effort`,
 `step_count`) goes in a request of its own, so it does not hold back the others.
+
+## Charts
+
+- Every chart sits in a `ChartFrame`: title, the label of the number, the number with
+  its unit, the dates, a legend, then the plot. `MetricChart` fills the frame for one
+  value per day. A page chart gives the frame its own ECharts option.
+- Use `bucketAxis` for the x axis and `bucketLabel` for the tooltip of a chart with one
+  mark per day, week, or month.
+- A dashed line is the average of the period. Its text gives the same number as the
+  head. A solid line is a reference from a named source.
+- A line stops at a gap longer than `MAX_GAP` (`src/lib/range.ts`).
+- When a period has no data, use `NoData` or `noDataText`. The text gives the dates
+  that have data.

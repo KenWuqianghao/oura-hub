@@ -12,7 +12,6 @@
   import Data from './pages/Data.svelte'
   import Ask from './pages/Ask.svelte'
   import Connect from './pages/Connect.svelte'
-  import Kit from './pages/Kit.svelte'
   import Seg from './components/Seg.svelte'
   import Skeleton from './components/Skeleton.svelte'
   import ErrorNote from './components/ErrorNote.svelte'
@@ -34,7 +33,6 @@
     ask: { title: 'shell.ask', nav: true, summary: false },
     data: { title: 'shell.data', nav: false, summary: false },
     connect: { title: 'shell.connect', nav: false, summary: false },
-    kit: { title: 'shell.connect', nav: false, summary: false },
   } as const satisfies Record<string, { title: Key; nav: boolean; summary: boolean }>
   type Tab = keyof typeof TABS
   const isTab = (s: string): s is Tab => Object.hasOwn(TABS, s)
@@ -107,7 +105,6 @@
     {:else if tab === 'trends'}<Trends metric={param || 'hrv_ms'} />
     {:else if tab === 'ask'}<Ask />
     {:else if tab === 'data'}<Data />
-    {:else if tab === 'kit'}<Kit />
     {:else}<Connect />{/if}
   </main>
 {/if}
