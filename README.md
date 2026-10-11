@@ -24,9 +24,11 @@ your iPhone. Full guide: [open-oura.vercel.app/setup](https://open-oura.vercel.a
   `get_health_daily`, `get_health_sleep`, `get_workouts`, `get_activity`.
 - `GET /export/events`: the ring replica back out, in pages.
 - `GET /health`: liveness; details with the token.
-- `GET /`: the web app: Today, Sleep, Trends,
-  Ask, Data, Connect. It signs in with the same token and reads `/api/summary` and
-  `/api/tool/<name>`. **Connect** shows a QR code that links the iPhone app in one scan.
+- `GET /`: the web app, in English and Chinese. Eight sections: Today, Sleep,
+  Activity, Heart, Nutrition, Body, Trends, Ask. Two more pages: Data and Connect. It
+  signs in with the same token and reads `/api/summary` and `/api/tool/<name>`.
+  **Connect** shows a QR code that links the iPhone app in one scan. The pages and
+  their routes: [docs/health-hub.md](docs/health-hub.md#the-web-ui).
 - `POST /api/agent/ask`: the built-in agent. Runs your own Claude Code, Codex, or
   Cursor CLI on the hub with the health tools attached; streams the answer.
 

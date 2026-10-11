@@ -199,7 +199,7 @@ read them:
 | `get_health_daily` | `kinds` (1 to 60 names), then `days` (default 30, maximum 4000) or `start_ymd` and `end_ymd`, `tz_offset_s` | One value per day for each kind, oldest first |
 | `get_health_sleep` | `days` (default 30, maximum 4000) or `start_ymd` and `end_ymd`, `tz_offset_s` | One row per night, oldest first, from the source with the most sleep |
 | `get_workouts` | `days` (default 30, maximum 4000) or `start_unix` and `end_unix`, `limit` (default 200, maximum 2000) | Workouts, newest first, with the heart rate inside each one |
-| `get_health_samples` | `kind`, `days` (default 7) or `start_unix` and `end_unix`, `limit` (default 500, maximum 20000) | Raw samples of one kind, newest first |
+| `get_health_samples` | `kind`, `days` (default 7, maximum 4000) or `start_unix` and `end_unix`, `limit` (default 500, maximum 20000) | Raw samples of one kind, newest first |
 
 `get_status_now` carries the same picture as `get_watch` under `watch`, so one call
 gives the ring and the Watch together.
@@ -207,6 +207,10 @@ gives the ring and the Watch together.
 Use `get_health_samples` for the detail inside one or two days. For a longer time,
 use the three aggregate tools. They calculate on the hub, so one call can cover all
 the years the hub holds. They do not need a ring summary.
+
+`get_health_samples` returns only the rows inside its window. If the newest row of a
+kind is old, give a larger `days` (maximum 4000) or a `start_unix`.
+`list_health_kinds` shows the date of the newest row.
 
 ### Days and time zones
 
@@ -347,13 +351,39 @@ oura dashboard --db /data/oura.db
 ## The web UI
 
 Open the hub address in a browser. Sign in with the token; it stays in that browser.
-The pages: **Today** (the day on one timeline, last night, activity, vitals, the
-Apple Watch), **Sleep** (every night with its hypnogram and the heart rate, HRV,
-temperature, blood oxygen, and movement across it), **Trends** (one ring or Watch
-metric per day), **Ask** (see below), **Data** (what the hub holds), and **Connect**
-(the QR code for the iPhone and the MCP settings). The UI reads
-`GET /api/summary` (the latest snapshot) and `POST /api/tool/<name>` (the MCP tools)
-with the bearer token. It is built from `web/` and embedded in the binary.
+
+The top bar has eight sections. Two more pages are behind the icons on the right.
+
+| Page | Route | Shows |
+| --- | --- | --- |
+| **Today** | `#/` | One day: last night, the status of the ring and the Watch, the activity totals, the last 14, 30, or 90 nights, the scores, and the Apple Health totals of the day |
+| **Sleep** | `#/sleep` | Each ring night: the hypnogram, then heart rate, HRV, skin temperature, blood oxygen, and movement on the same hours |
+| | `#/sleep/history` | The same page, at the sleep history from Apple Health: time asleep by stage, bedtime and wake time, and each night in a table |
+| **Activity** | `#/activity` | Steps, energy, exercise, stand hours, distance, the workouts by type, the workout log, and one year of days |
+| | `#/activity/workouts` | The same page, at the workout log. Trends links here for the `workout` kind |
+| **Heart** | `#/heart` | The heart rate range per day, resting heart rate and HRV, the ring against the Watch, fitness, breathing, and the heart events |
+| **Nutrition** | `#/nutrition` | The food log from Apple Health: energy eaten and burned, macronutrients, micronutrients, water and caffeine, and the logged days |
+| **Body** | `#/body` | Weight, mobility, hearing, and the smaller logs. Each row gives the dates of its record |
+| **Trends** | `#/trends/<id>` | One value per day for one ring metric or one Apple Health kind, with a list of all of them |
+| **Ask** | `#/ask` | The built-in agent (see below) |
+| **Data** | `#/data` | What the hub holds: the snapshots, the ring replica, the tools, and each Apple Health kind with its dates |
+| **Connect** | `#/connect` | The QR code for the iPhone, the MCP settings, and the push command for the Mac |
+
+`<id>` in the Trends route is a `get_trends` metric (for example `hrv_ms`) or an
+Apple Health kind (for example `vo2_max`). `#/trends` opens `hrv_ms`.
+
+On Activity, Heart, Nutrition, Body, Trends, and the sleep history, a range control
+sets the period: W, M, 6M, Y, or All.
+
+**Language.** The switch **EN / 中文** in the top bar and on the sign-in page sets
+the language. `?lang=zh` or `?lang=en` in the URL also sets it. The browser stores
+the choice. On the first visit the page follows the language of the browser.
+
+**Light and dark.** The page follows the system setting.
+
+The UI reads `GET /api/summary` (the latest snapshot) and `POST /api/tool/<name>`
+(the MCP tools) with the bearer token. It is built from `web/` and embedded in the
+binary.
 
 ## The built-in agent (Ask)
 
