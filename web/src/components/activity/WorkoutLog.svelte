@@ -11,7 +11,7 @@
   const PAGE = 25
   let shown = $state(PAGE)
   const when = (unix: number) => new Intl.DateTimeFormat(intlTag(), { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(unix * 1000)
-  const bpm = (v: number | null) => v != null ? F.num(v) : '—'
+  const bpm = (v: number | null) => v != null ? `${F.num(v)} bpm` : '—'
 </script>
 
 <div class="table-scroll"><table class="t">

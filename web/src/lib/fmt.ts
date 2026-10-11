@@ -83,9 +83,11 @@ export function ago(unix: number, now = Date.now() / 1000): string {
   if (s < 90) return t('common.just_now')
   const opts = { style: 'short', numeric: 'always' } as const
   const rtf = memo('r', opts, tag => new Intl.RelativeTimeFormat(tag, opts))
-  if (s < 3600) return rtf.format(-Math.round(s / 60), 'minute')
-  if (s < 48 * 3600) return rtf.format(-(s < 10 * 3600 ? Math.round(s / 360) / 10 : Math.round(s / 3600)), 'hour')
-  return rtf.format(-Math.round(s / 86400), 'day')
+  // Intl writes "2小时前"; the pages put a space between a number and Chinese text
+  const say = (n: number, unit: 'minute' | 'hour' | 'day') => rtf.format(n, unit).replace(/(\d)(?=[\u4e00-\u9fff])/, '$1 ')
+  if (s < 3600) return say(-Math.round(s / 60), 'minute')
+  if (s < 48 * 3600) return say(-(s < 10 * 3600 ? Math.round(s / 360) / 10 : Math.round(s / 3600)), 'hour')
+  return say(-Math.round(s / 86400), 'day')
 }
 
 /** "8 hr 12 min" / "8 小时 12 分钟" from minutes. */

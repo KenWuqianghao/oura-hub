@@ -67,7 +67,7 @@
           const x = p[0].axisValue as number
           const lines = [tipHead(clockOf(x))]
           const run = stageRuns.find(r => x >= r[0] && x < r[1])
-          if (run) lines.push(tipRow(run[2] ? stageName(run[2]) : tr('charts.in_bed'), run[2] ? tr('charts.asleep_word') : tr('charts.no_stages')))
+          if (run) lines.push(run[2] ? tipRow(stageName(run[2]), '') : tipRow(tr('charts.in_bed'), tr('charts.no_stages')))
           for (const item of p) {
             if (item.seriesId === 'hr' && item.value) lines.push(tipRow(num(item.value[1]), 'bpm'))
             if (item.seriesId === 'move' && item.value) lines.push(tipRow(num(item.value[1], 1), tr('charts.met_above_rest')))

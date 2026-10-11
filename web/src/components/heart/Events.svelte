@@ -22,7 +22,7 @@
         {#each res.data as e}
           <tr>
             <td>{when(e.at)}</td>
-            <td>{kindTitle(e.type === 'low' ? 'low_heart_rate_event' : 'electrocardiogram')}</td>
+            <td>{e.type === 'low' ? t('heart.event_low') : kindTitle('electrocardiogram')}</td>
             <td class="r">{e.type === 'ecg' && e.bpm != null ? `${F.num(e.bpm)} bpm` : '—'}</td>
             <td>{e.type === 'ecg' ? t(`heart.ecg_${e.result}`) : t('heart.low_for', { time: F.minutesText(e.minutes) })}</td>
             <td class="src">{e.source}</td>

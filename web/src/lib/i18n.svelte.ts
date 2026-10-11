@@ -33,8 +33,10 @@ export const intlTag = (): string => i18n.locale === 'zh' ? 'zh-CN' : navigator.
 
 export const has = (key: string): key is Key => Object.hasOwn(dict.en, key)
 
-/** The text of a key in the current language. `{name}` in the text takes `vars.name`. */
+/** The text of a key in the current language. `{name}` in the text takes `vars.name`. `{name:day|days}` gives the first word when `vars.name` is 1 and the second word for all other counts. */
 export function t(key: Key, vars?: Record<string, string | number>): string {
   const s = dict[i18n.locale][key]
-  return vars ? s.replace(/\{(\w+)\}/g, (_, name: string) => String(vars[name] ?? '')) : s
+  if (!vars) return s
+  return s.replace(/\{(\w+)(?::([^|}]*)\|([^}]*))?\}/g, (_, name: string, one?: string, many?: string) =>
+    one === undefined ? String(vars[name] ?? '') : String(vars[name]) === '1' ? one : many ?? '')
 }

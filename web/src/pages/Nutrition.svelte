@@ -36,7 +36,8 @@
   let picked = $state<RangeId | null>(null)
   const range = $derived(picked ?? defaultRange(logged, today))
   const win = $derived(windowOf(range, [...logged]))
-  const when = $derived(F.dateRange(win.start, win.end))
+  // no dates while the log loads: the window is not known before the log is
+  const shownWhen = $derived(diet.data ? F.dateRange(win.start, win.end) : '\u00a0')
   const days = $derived(within(logged, win))
   const bucket = (d: ReturnType<typeof within>) => bucketize(d, 'sum', win.start, win.end)
 
@@ -76,21 +77,21 @@
   {:else}
     <Section title={t('nutrition.energy')}>
       <div class="cols cols-2-1">
-        <ChartFrame title={t('nutrition.energy_name')} color="--c-nutrition" label={t('nutrition.per_logged_day')} value={meanOf(days)} unit="kcal" {when} height={260} option={energy} ready={!!diet.data} empty={diet.data && !days.length ? emptyText : ''}>
+        <ChartFrame title={t('nutrition.energy_name')} color="--c-nutrition" label={t('nutrition.per_logged_day')} value={meanOf(days)} unit="kcal" when={shownWhen} height={260} option={energy} ready={!!diet.data} empty={diet.data && !days.length ? emptyText : ''}>
           {#snippet legend()}<span><span class="sw" style="background: var(--c-nutrition)"></span>{t('nutrition.legend_intake')}</span><span><span class="ln marker"></span>{t('nutrition.legend_burned')}</span>{/snippet}
         </ChartFrame>
         <div>
           <p class="say balance">
-            {#if !out.data}{out.error || t('nutrition.burned_loading')}
+            {#if !out.data || !diet.data}{out.error || t('nutrition.burned_loading')}
             {:else if !bal}{t('nutrition.balance_none')}
-            {:else}{t(bal.intake >= bal.burned ? 'nutrition.balance_more' : 'nutrition.balance_less', { n: F.num(bal.days), in: F.num(bal.intake), out: F.num(bal.burned), diff: F.num(Math.abs(bal.intake - bal.burned)) })}{/if}
+            {:else}{t(bal.intake >= bal.burned ? 'nutrition.balance_more' : 'nutrition.balance_less', { n: F.num(bal.days), in: F.num(bal.intake), out: F.num(bal.burned), diff: F.num(Math.abs(Math.round(bal.intake) - Math.round(bal.burned))) })}{/if}
           </p>
           <KV rows={[
-            [t('nutrition.kv_logged'), F.num(days.length)],
+            [t('nutrition.kv_logged'), diet.data ? F.num(days.length) : null],
             [t('nutrition.kv_intake'), days.length ? `${F.num(meanOf(days))} kcal` : null],
-            [t('nutrition.kv_both'), out.data ? F.num(bal?.days ?? 0) : null],
+            [t('nutrition.kv_both'), out.data && diet.data ? F.num(bal?.days ?? 0) : null],
             [t('nutrition.kv_burned'), bal ? `${F.num(bal.burned)} kcal` : null],
-            [t('nutrition.kv_diff'), bal ? `${F.signed(bal.intake - bal.burned)} kcal` : null],
+            [t('nutrition.kv_diff'), bal ? `${F.signed(Math.round(bal.intake) - Math.round(bal.burned))} kcal` : null],
           ]} />
           <p class="small sub note-text">{t('nutrition.burned_note')}</p>
         </div>
@@ -99,11 +100,11 @@
 
     <Section title={t('nutrition.macros')}>
       <div class="cols cols-2-1">
-        <ChartFrame title={t('nutrition.macros_name')} color="--c-nutrition" label={t('nutrition.macros_label')} value={split.kcal} unit="kcal" {when} height={260} option={macros} ready={!!diet.data} empty={diet.data && !split.days ? emptyText : ''}>
+        <ChartFrame title={t('nutrition.macros_name')} color="--c-nutrition" label={t('nutrition.macros_label')} value={split.kcal} unit="kcal" when={shownWhen} height={260} option={macros} ready={!!diet.data} empty={diet.data && !split.days ? emptyText : ''}>
           {#snippet legend()}{#each MACROS as m (m.kind)}<span><span class="sw" style="background: {macroCss(m.kind)}"></span>{kindTitle(m.kind)}</span>{/each}{/snippet}
         </ChartFrame>
         <div>
-          <div class="eyebrow">{t('nutrition.split')} <span class="aside">{t('nutrition.split_days', { n: F.num(split.days) })}</span></div>
+          <div class="eyebrow">{t('nutrition.split')} {#if diet.data}<span class="aside">{t('nutrition.split_days', { n: F.num(split.days) })}</span>{/if}</div>
           <MacroSplit {split} {held} />
           <p class="small sub note-text">{t('nutrition.factors')}</p>
         </div>
