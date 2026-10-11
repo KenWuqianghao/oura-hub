@@ -1,7 +1,7 @@
 // Chart options of the Heart page: the daily heart rate range, and the ring's
 // nightly low against the Watch's resting heart rate.
 import { base, tokens, axisChrome, axisLabel, bucketAxis, bucketLabel, bucketTip, fitAxis, xTime, yValue, tipHead, tipRow, tipNone, tipSwatch, type Option } from './charts'
-import { withBreaks } from './heart'
+import { withBreaks } from './range'
 import { t } from './i18n.svelte'
 import type { Buckets } from './range'
 import type { DayPoint, TrendPoint } from './api'

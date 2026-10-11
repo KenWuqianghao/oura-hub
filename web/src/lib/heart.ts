@@ -1,7 +1,5 @@
 // The Heart page's calculations, pure.
 import type { DayPoint, HealthSample, TrendPoint } from './api'
-import { addDays } from './fmt'
-import { MAX_GAP } from './range'
 
 export interface Against { latest: DayPoint; mean: number; diff: number }
 /** The newest day against the mean of all the days, both rounded as the page shows them, so the difference adds up for the reader. */
@@ -26,16 +24,6 @@ export function paired(ring: TrendPoint[], watch: DayPoint[]): Paired | null {
   const both = ring.filter(p => w.has(p.ymd))
   if (!both.length) return null
   return { days: both.length, ring: both.reduce((a, p) => a + p.value, 0) / both.length, watch: both.reduce((a, p) => a + w.get(p.ymd)!, 0) / both.length }
-}
-
-/** Points for a time axis, with a break where more than `gap` days have no value: the gap rule of every line on the site. */
-export function withBreaks(points: { ymd: string; value: number }[], at: (ymd: string) => number, gap = MAX_GAP.day): [number, number | null][] {
-  const out: [number, number | null][] = []
-  points.forEach((p, i) => {
-    if (i && addDays(points[i - 1].ymd, gap + 1) < p.ymd) out.push([at(addDays(points[i - 1].ymd, 1)), null])
-    out.push([at(p.ymd), p.value])
-  })
-  return out
 }
 
 // HKElectrocardiogram.Classification raw values, as the phone app writes them: "classification_<n>"

@@ -139,3 +139,13 @@ export function fitRange(picked: RangeId, newestUnix: number, now = new Date()):
   const from = RANGES.findIndex(r => r.id === picked)
   return RANGES.find((r, i) => i >= from && r.days >= age)?.id ?? 'All'
 }
+
+/** Points for a time axis, with a break where more than `gap` days have no value: the gap rule of every line on the site. */
+export function withBreaks(points: { ymd: string; value: number }[], at: (ymd: string) => number, gap = MAX_GAP.day): [number, number | null][] {
+  const out: [number, number | null][] = []
+  points.forEach((p, i) => {
+    if (i && spanDays(points[i - 1].ymd, p.ymd) > gap + 2) out.push([at(ymdOf(utc(points[i - 1].ymd) + DAY)), null])
+    out.push([at(p.ymd), p.value])
+  })
+  return out
+}
