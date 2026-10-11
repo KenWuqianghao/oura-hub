@@ -7,7 +7,7 @@
   import { chart, base, tokens, color as cssColor, axisChrome, axisLabel, tipHead, tipRow, type Option } from '../lib/charts'
   import { resource, loadDaily } from '../lib/health.svelte'
   import { kindInfo, kindTitle, unitLabel, type ChartType } from '../lib/kinds'
-  import { bucketize, bridge, rolling, windowOf, MAX_GAP, type Bucket, type RangeId } from '../lib/range'
+  import { bucketize, bridge, rolling, stats, windowOf, MAX_GAP, type Bucket, type RangeId } from '../lib/range'
   import { headline, type StatChoice } from '../lib/metric'
   import { t, intlTag } from '../lib/i18n.svelte'
   import * as F from '../lib/fmt'
@@ -62,14 +62,15 @@
     const tk = tokens(), col = cssColor(color ?? info.color), pts = buckets.points, dec = info.decimals
     const values = pts.map(p => p.value)
     const present = values.filter((v): v is number => v != null)
-    const mean = present.length ? present.reduce((a, b) => a + b, 0) / present.length : null
+    // the average of the days, the number the head shows: the mean of the marks would weigh a week of one day like a week of seven
+    const mean = stats(inWindow, data?.agg ?? 'mean').mean
     const lineOf = (value: number, label: string, dashed: boolean) => ({
       yAxis: value, lineStyle: { color: tk.ash, width: 1, type: dashed ? [4, 3] : 'solid' },
       label: { show: !!label, formatter: label, position: 'insideEndTop', color: tk.ash, fontSize: 11, fontFamily: tk.font },
     })
     const marks = {
       markLine: { silent: true, symbol: 'none', animation: false, data: [
-        ...(kindOf === 'bar' && mean != null && present.length > 1 ? [lineOf(mean, `${t('charts.avg')} ${F.num(mean, dec)}`, true)] : []),
+        ...(kindOf === 'bar' && mean != null && present.length > 1 ? [lineOf(mean, t(head.label === 'common.stat_daily_average' ? 'charts.line_daily_average' : 'charts.line_average', { n: F.num(mean, dec) }), true)] : []),
         ...refs.map(r => lineOf(r.value, r.label ?? '', false)),
       ] },
       markArea: { silent: true, itemStyle: { color: tk.band }, label: { color: tk.ash, fontSize: 11, position: 'insideTopLeft' }, data: bands.map(b => [{ yAxis: b.from, name: b.label ?? '' }, { yAxis: b.to }]) },

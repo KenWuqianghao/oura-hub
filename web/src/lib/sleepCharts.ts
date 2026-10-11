@@ -79,7 +79,7 @@ export function stagesOption(m: Marks<StageBucket>, meanAsleep: number | null): 
       id: s, type: 'bar', stack: 'night', barMaxWidth: 22, barCategoryGap: m.points.length > 40 ? '18%' : '30%',
       // a zero would still draw the outline of a hollow segment
       data: m.points.map(p => p.minutes?.[s] || null), itemStyle: segmentStyle(s),
-      ...(i === 0 ? { markLine: { silent: true, symbol: 'none', animation: false, data: meanAsleep != null ? [dashed(meanAsleep, `${t('charts.avg')} ${F.minutesText(meanAsleep)}`, 'insideEndTop')] : [] } } : {}),
+      ...(i === 0 ? { markLine: { silent: true, symbol: 'none', animation: false, data: meanAsleep != null ? [dashed(meanAsleep, t('charts.line_average', { n: F.minutesText(meanAsleep) }), 'insideEndTop')] : [] } } : {}),
     })),
   }
 }
