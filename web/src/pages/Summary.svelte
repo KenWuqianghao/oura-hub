@@ -9,11 +9,15 @@
   import Seg from '../components/Seg.svelte'
   import Num from '../components/Num.svelte'
   import Empty from '../components/Empty.svelte'
+  import AppleHealthDay from '../components/today/AppleHealthDay.svelte'
   import { hub, selectDay } from '../lib/store.svelte'
   import { t, i18n, has } from '../lib/i18n.svelte'
   import { zhRingText } from '../i18n/today'
   import { activityTitle } from '../lib/kinds'
   import { nightRows, nightAside } from '../lib/night'
+  import { resource } from '../lib/health.svelte'
+  import { loadDayHealth } from '../lib/todayHealth'
+  import { oneNightPerWakeDay } from '../lib/trendsRing'
   import * as F from '../lib/fmt'
   import type { Summary, Night, Contributor } from '../lib/api'
 
@@ -21,6 +25,9 @@
   const w = $derived(hub.watch)
   const day = $derived(hub.day || F.todayYmd())
   const isToday = $derived(day === F.todayYmd())
+  // Apple Health for the selected day; the last day stays on screen while the next one loads, so the numbers tween
+  const health = resource(() => loadDayHealth(day))
+  const totals = $derived(health.data?.totals)
   const night = $derived(F.nightForDay(s, day))
   const act = $derived(s.activity_daily?.[day])
   const profile = $derived(s.activity_profile?.[day] ?? [])
@@ -30,14 +37,9 @@
     const last7 = Array.from({ length: 7 }, (_, i) => { const d = F.addDays(day, i - 6); const sc = s.scores?.days?.[d]?.[k]; return sc && typeof sc.score === 'number' ? sc.score : null })
     return { kind: k, hit, last7 }
   }))
-  // one night per wake day, the longest: a nap must not draw a second point on the same day
-  const nightsByWake = $derived.by(() => {
-    const byDay = new Map<string, Night>()
-    for (const n of s.nights) { const d = F.wakeYmd(n); if (d && (byDay.get(d)?.in_bed_h ?? -1) < (n.in_bed_h ?? 0)) byDay.set(d, n) }
-    return [...byDay.entries()].sort(([a], [b]) => (a < b ? -1 : 1)).map(([, n]) => n)
-  })
+  const nightsByWake = $derived(oneNightPerWakeDay(s.nights))
   let range = $state(30)
-  const series = (pick: (n: Night) => number | null | undefined) => nightsByWake.filter(n => pick(n) != null).slice(-range).map(n => ({ ymd: F.wakeYmd(n) ?? n.ymd!, value: pick(n) as number }))
+  const series = (pick: (n: Night) => number | null | undefined) => nightsByWake.filter(({ night }) => pick(night) != null).slice(-range).map(({ ymd, night }) => ({ ymd, value: pick(night) as number }))
   const stepsSeries = $derived(Object.entries(s.activity_daily ?? {}).sort().slice(-range).filter(([, v]) => v.steps != null).map(([ymd, v]) => ({ ymd, value: v.steps as number })))
   const smalls = $derived([
     { title: t('common.hrv'), unit: 'ms', points: series(n => n.hrv_ms), baseline: s.vitals?.hrv?.baseline ?? null, color: '--c-heart', text: t('today.hrv_text'), route: 'trends/hrv_ms' },
@@ -53,8 +55,6 @@
   const watchAgo = $derived(w?.freshness ? F.ago(w.freshness.newest_sample_unix) : '—')
   const hrDay = $derived(hub.dayData?.day === day ? hub.dayData.hr : [])
 
-  const mins = (v: number | null | undefined) => v != null ? `${Math.round(v)} ${t('common.min')}` : null
-  const km = (m: number | null | undefined, decimals = 1) => m != null ? `${F.num(m / 1000, decimals)} km` : '—'
   // the phone's digest sentence is English free text: in Chinese the lede is built from the night's fields
   const lede = $derived.by(() => {
     if (isToday && s.digest && i18n.locale === 'en') return s.digest
@@ -107,9 +107,9 @@
   <div class="section flush">
     <DayStrip {day} dayStart={F.dayStartMs(day)} nights={s.nights} hr={hrDay} {profile} {prevProfile} {workouts} />
     <div class="cols cols-4" style="margin-top: 14px; gap: 0 32px">
-      <div class="stat"><div class="label">{t('today.steps_ring')}</div><div class="value"><Num value={act?.steps} /></div><div class="delta">{w?.today?.steps != null && isToday ? t('today.watch_n', { n: F.num(w.today.steps) }) : ''}</div></div>
+      <div class="stat"><div class="label">{t('today.steps_ring')}</div><div class="value"><Num value={act?.steps} /></div><div class="delta">{totals?.step_count != null ? t('today.watch_n', { n: F.num(totals.step_count) }) : ''}</div></div>
       <div class="stat"><div class="label">{t('common.active_energy')}</div><div class="value"><Num value={act?.active_kcal} /><small>kcal</small></div><div class="delta">{act?.total_kcal != null ? t('today.kcal_total', { n: F.num(act.total_kcal) }) : ''}</div></div>
-      <div class="stat"><div class="label">{t('today.exercise_watch')}</div><div class="value"><Num value={isToday ? w?.today?.exercise_min : null} /><small>{t('common.min')}</small></div><div class="delta">{isToday && w?.today?.stand_hours != null ? t('today.stand_hours_n', { n: w.today.stand_hours }) : ''}</div></div>
+      <div class="stat"><div class="label">{t('today.exercise_watch')}</div><div class="value"><Num value={totals?.exercise_time} /><small>{t('common.min')}</small></div><div class="delta">{totals?.stand_hour != null ? t('today.stand_hours_n', { n: F.num(totals.stand_hour) }) : ''}</div></div>
       <div class="stat"><div class="label">{t('today.workouts')}</div><div class="value"><Num value={workouts.length} /></div><div class="delta">{workouts.map(x => activityTitle(x.label)).slice(0, 3).join(' · ')}</div></div>
     </div>
   </div>
@@ -167,23 +167,7 @@
       <div>
         <div class="eyebrow">Apple Watch <span class="aside">{w?.available ? t('today.newest_sample', { ago: watchAgo }) : t('today.nothing_pushed')}</span></div>
         {#if w?.available}
-          <div class="table-scroll"><table class="t">
-            <thead><tr><th></th><th class="r">{t('common.today')}</th><th class="r">{t('common.yesterday')}</th></tr></thead>
-            <tbody>
-              <tr><td class="text">{t('common.steps')}</td><td class="r">{F.num(w.today?.steps)}</td><td class="r">{F.num(w.yesterday?.steps)}</td></tr>
-              <tr><td class="text">{t('common.active_energy')}</td><td class="r">{F.num(w.today?.active_kcal)} kcal</td><td class="r">{F.num(w.yesterday?.active_kcal)} kcal</td></tr>
-              <tr><td class="text">{t('common.exercise')}</td><td class="r">{F.num(w.today?.exercise_min)} {t('common.min')}</td><td class="r">{F.num(w.yesterday?.exercise_min)} {t('common.min')}</td></tr>
-              <tr><td class="text">{t('common.stand_hours')}</td><td class="r">{F.num(w.today?.stand_hours)}</td><td class="r">{F.num(w.yesterday?.stand_hours)}</td></tr>
-              <tr><td class="text">{t('common.distance')}</td><td class="r">{km(w.today?.distance_m)}</td><td class="r">{km(w.yesterday?.distance_m)}</td></tr>
-            </tbody>
-          </table></div>
-          <div class="small sub" style="margin-top: 8px">{t('today.day_totals')}</div>
-          {#if w.workouts_48h?.length}
-            <div class="table-scroll" style="margin-top: 16px"><table class="t">
-              <thead><tr><th>{t('today.workout')}</th><th>{t('today.when')}</th><th class="r">{t('today.duration')}</th><th class="r">{t('today.energy')}</th><th class="r">{t('common.distance')}</th></tr></thead>
-              <tbody>{#each w.workouts_48h as wk}<tr><td class="text">{activityTitle(wk.activity)}</td><td>{F.dateTime(wk.start_unix)}</td><td class="r">{mins(wk.duration_min) ?? '—'}</td><td class="r">{wk.kcal != null ? `${F.num(wk.kcal)} kcal` : '—'}</td><td class="r">{km(wk.distance_m, 2)}</td></tr>{/each}</tbody>
-            </table></div>
-          {/if}
+          <AppleHealthDay data={health.data} error={health.error} loading={health.loading} />
         {:else}
           <Empty title={t('today.no_health_title')} text={t('today.no_health_text')} />
         {/if}

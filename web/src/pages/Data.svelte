@@ -6,12 +6,15 @@
   import { hub, logout } from '../lib/store.svelte'
   import { api } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
-  import { kindTitle } from '../lib/kinds'
+  import { kindTitle, kindInfo, groupTitle } from '../lib/kinds'
+  import { kindHref } from '../lib/trends'
   import * as F from '../lib/fmt'
   const info = $derived(hub.info)
   const s = $derived(hub.summary)
   const kinds = $derived([...(info?.health ?? [])].sort((a, b) => b.count - a.count))
   const total = $derived(kinds.reduce((a, k) => a + k.count, 0))
+  // a newest sample from another year needs its year: "Jun 13 05:24" alone reads as this year
+  const newest = (unix: number) => `${new Date(unix * 1000).getFullYear() === new Date().getFullYear() ? F.dateTime(unix) : F.fullDateOf(unix * 1000)} · ${F.ago(unix)}`
   let tools = $state<string[]>([])
   $effect(() => { api.toolNames().then(names => { tools = names }, () => { tools = [] }) })
 </script>
@@ -52,8 +55,8 @@
   <Section title={t('data.samples_title')} aside={total ? t('data.samples_n', { n: F.num(total) }) : ''}>
     {#if kinds.length}
       <div class="table-scroll" style="max-width: 880px"><table class="t">
-        <thead><tr><th>{t('data.kind')}</th><th class="r">{t('data.samples')}</th><th class="r">{t('data.first')}</th><th class="r">{t('data.newest')}</th></tr></thead>
-        <tbody>{#each kinds as k (k.kind)}<tr><td class="text"><a href="#/trends/{k.kind}" style="color: inherit">{kindTitle(k.kind)}</a></td><td class="r">{F.num(k.count)}</td><td class="r">{k.first_start_unix != null ? F.fullDateOf(k.first_start_unix * 1000) : '—'}</td><td class="r">{F.dateTime(k.newest_end_unix)} · {F.ago(k.newest_end_unix)}</td></tr>{/each}</tbody>
+        <thead><tr><th>{t('data.kind')}</th><th>{t('data.group')}</th><th class="r">{t('data.samples')}</th><th class="r">{t('data.first')}</th><th class="r">{t('data.newest')}</th></tr></thead>
+        <tbody>{#each kinds as k (k.kind)}<tr><td class="text"><a href={kindHref(k.kind)} style="color: inherit">{kindTitle(k.kind)}</a></td><td style="color: var(--c-{kindInfo(k.kind).group}-ink)">{groupTitle(kindInfo(k.kind).group)}</td><td class="r">{F.num(k.count)}</td><td class="r">{k.first_start_unix != null ? F.fullDateOf(k.first_start_unix * 1000) : '—'}</td><td class="r">{newest(k.newest_end_unix)}</td></tr>{/each}</tbody>
       </table></div>
       <p class="small sub" style="max-width: 880px">{t('data.samples_note')}</p>
     {:else}
