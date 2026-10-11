@@ -7,7 +7,7 @@
   import { chart, base, tokens, color as cssColor, axisChrome, axisLabel, tipHead, tipRow, type Option } from '../lib/charts'
   import { resource, loadDaily } from '../lib/health.svelte'
   import { kindInfo, kindTitle, unitLabel, type ChartType } from '../lib/kinds'
-  import { bucketize, rolling, windowOf, type Bucket, type RangeId } from '../lib/range'
+  import { bucketize, bridge, rolling, windowOf, MAX_GAP, type Bucket, type RangeId } from '../lib/range'
   import { headline, type StatChoice } from '../lib/metric'
   import { t, intlTag } from '../lib/i18n.svelte'
   import * as F from '../lib/fmt'
@@ -74,6 +74,8 @@
       ] },
       markArea: { silent: true, itemStyle: { color: tk.band }, label: { color: tk.ash, fontSize: 11, position: 'insideTopLeft' }, data: bands.map(b => [{ yAxis: b.from, name: b.label ?? '' }, { yAxis: b.to }]) },
     }
+    const few = present.length <= 45, joined = bridge(values, MAX_GAP[buckets.size])
+    const dot = { symbol: 'circle', symbolSize: 6, itemStyle: { color: col, borderColor: tk.surface, borderWidth: 1.5, opacity: trend ? 0.7 : 1 } }
     const main = kindOf === 'bar'
       ? { id: 'v', type: 'bar', data: values, itemStyle: { color: col, borderRadius: [3, 3, 0, 0] }, barMaxWidth: 26, barCategoryGap: pts.length > 40 ? '18%' : '30%', ...marks }
       : kindOf === 'range'
@@ -84,8 +86,8 @@
               const w = Math.max(2, Math.min(8, api.size([1, 0])[0] * 0.6)), h = Math.max(lo[1] - hi[1], w)
               return { type: 'rect', transition: ['shape'], shape: { x: lo[0] - w / 2, y: (lo[1] + hi[1]) / 2 - h / 2, width: w, height: h, r: w / 2 }, style: { fill: col } }
             } }
-        : { id: 'v', type: 'line', data: values, connectNulls: true, showSymbol: present.length <= 45, symbol: 'circle', symbolSize: 6,
-            lineStyle: { width: trend ? 1.25 : 2, color: col, opacity: trend ? 0.45 : 1 }, itemStyle: { color: col, borderColor: tk.surface, borderWidth: 1.5, opacity: trend ? 0.7 : 1 }, ...marks }
+        : { id: 'v', type: 'line', data: joined.line.map((v, i) => joined.filled[i] ? { value: v, symbol: 'none' } : v), connectNulls: false, showSymbol: few, ...dot,
+            lineStyle: { width: trend ? 1.25 : 2, color: col, opacity: trend ? 0.45 : 1 }, ...marks }
     return {
       ...base(),
       grid: { left: 8, right: 12, top: 14, bottom: 4, containLabel: true },
@@ -104,7 +106,11 @@
           return rows.join('')
         } },
       series: kindOf === 'line'
-        ? [main, { id: 'trend', type: 'line', data: trend ? rolling(values) : [], connectNulls: true, showSymbol: false, lineStyle: { width: 2.5, color: col }, itemStyle: { color: col }, silent: true }]
+        ? [main,
+            // the 7-day mean stops where the line stops
+            { id: 'trend', type: 'line', data: trend ? bridge(rolling(values), MAX_GAP.day).line : [], connectNulls: false, showSymbol: false, lineStyle: { width: 2.5, color: col }, itemStyle: { color: col }, silent: true },
+            // a value with no neighbour within the gap rule has no line through it: it shows as a point
+            { id: 'lone', type: 'line', data: few ? [] : joined.lone, showSymbol: true, ...dot, lineStyle: { width: 0 }, silent: true }]
         : [main],
     }
   })

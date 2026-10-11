@@ -82,6 +82,32 @@ export function stats(days: DayPoint[], agg: Agg): Stats {
   }
 }
 
+/** A line joins two marks with data when at most this many marks without data lie between them. A longer silence is a gap, and the line stops. */
+export const MAX_GAP: Record<BucketSize, number> = { day: 7, week: 4, month: 3 }
+
+/**
+ * The values of a line that breaks at long gaps. `line` holds each value, a straight
+ * fill across a short gap (`filled` is true there, so no symbol and no tooltip value
+ * stands on it), and null inside a long gap. `lone` holds the values that no line
+ * reaches: draw them as points, or they are invisible.
+ */
+export function bridge(values: (number | null)[], maxGap: number): { line: (number | null)[]; filled: boolean[]; lone: (number | null)[] } {
+  const line = [...values], filled = values.map(() => false), lone: (number | null)[] = values.map(() => null)
+  const joined = values.map(() => false)
+  let prev = -1
+  values.forEach((v, i) => {
+    if (v == null) return
+    if (prev >= 0 && i - prev - 1 <= maxGap) {
+      const a = values[prev]!
+      for (let k = prev + 1; k < i; k++) { line[k] = a + (v - a) * (k - prev) / (i - prev); filled[k] = true }
+      joined[prev] = joined[i] = true
+    }
+    prev = i
+  })
+  values.forEach((v, i) => { if (v != null && !joined[i]) lone[i] = v })
+  return { line, filled, lone }
+}
+
 /** A mean over the last `n` points up to each point: the trend under the daily noise. */
 export function rolling(values: (number | null)[], n = 7): (number | null)[] {
   return values.map((v, i) => {
