@@ -1,81 +1,97 @@
-// ECharts, set up once with the page's tokens. Every chart on the site goes through
-// `theme()` so grids, axes, tooltips, and marks share one look: hairline solid grid,
-// 2px lines, small filled markers, recessive axes, one tooltip listing every series.
+// ECharts, set up once with the page's tokens. Every chart on the site spreads
+// `base()` so grids, axes, tooltips, and motion share one look: hairline grid,
+// recessive axes in the system font, one tooltip listing every series.
 import * as echarts from 'echarts/core'
-import { LineChart, BarChart, CustomChart, ScatterChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent, LegendComponent, DataZoomComponent, AxisPointerComponent, GraphicComponent } from 'echarts/components'
+import { LineChart, BarChart, CustomChart } from 'echarts/charts'
+import { GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent, LegendComponent, AxisPointerComponent, GraphicComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { theme } from './theme.svelte'
 
-echarts.use([LineChart, BarChart, CustomChart, ScatterChart, GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent, LegendComponent, DataZoomComponent, AxisPointerComponent, GraphicComponent, CanvasRenderer])
+echarts.use([LineChart, BarChart, CustomChart, GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent, LegendComponent, AxisPointerComponent, GraphicComponent, CanvasRenderer])
 
 export { echarts }
+export type Option = echarts.EChartsCoreOption
 
+/** The value of a CSS custom property on :root, for the current scheme. */
 export function token(name: string): string {
+  void theme.dark
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+}
+/** A colour prop for a chart: a token name ("--c-heart"), "var(--c-heart)", or any CSS colour. */
+export function color(c: string): string {
+  return c.startsWith('--') ? token(c) : c.startsWith('var(') ? token(c.slice(4, -1)) : c
 }
 
 export function tokens() {
   return {
     ink: token('--ink'), ash: token('--ash'), mute: token('--mute'), rule: token('--rule'), ruleStrong: token('--rule-strong'),
-    surface: token('--surface'), signal: token('--signal'), ember: token('--ember'), slate: token('--slate'),
+    surface: token('--surface'), raised: token('--raised'), band: token('--band'),
+    ring: token('--ring'), watch: token('--watch'),
+    activity: token('--c-activity'), heart: token('--c-heart'), sleep: token('--c-sleep'), body: token('--c-body'), respiratory: token('--c-respiratory'),
     deep: token('--deep'), core: token('--core'), rem: token('--rem'), awake: token('--awake'),
-    good: token('--good'), warn: token('--warn'), alert: token('--alert'), band: token('--band'),
-    font: token('--font'), mono: token('--mono'),
+    font: token('--font'),
   }
 }
 
 /** The shared chrome. Spread into every option. */
-export function base(): echarts.EChartsCoreOption {
+export function base(): Option {
   const t = tokens()
   return {
-    animation: false,
+    animation: !theme.reduced,
+    animationDuration: 500, animationEasing: 'cubicOut',
+    animationDurationUpdate: 300, animationEasingUpdate: 'cubicInOut',
     textStyle: { fontFamily: t.font, color: t.ash },
-    color: [t.signal, t.ember, t.slate],
     tooltip: {
-      trigger: 'axis',
+      trigger: 'axis', transitionDuration: theme.reduced ? 0 : 0.12, confine: true,
       axisPointer: { type: 'line', lineStyle: { color: t.ruleStrong, width: 1 }, label: { show: false } },
-      backgroundColor: t.surface, borderColor: t.ruleStrong, borderWidth: 1,
+      backgroundColor: t.raised, borderColor: t.rule, borderWidth: 1,
       textStyle: { color: t.ink, fontFamily: t.font, fontSize: 12 },
-      padding: [8, 10], extraCssText: 'box-shadow: 0 8px 24px rgba(0,0,0,.18); border-radius: 8px;',
+      padding: [8, 10], extraCssText: 'box-shadow: 0 8px 28px rgba(0,0,0,.16); border-radius: 10px; font-variant-numeric: tabular-nums;',
     },
   }
 }
 
+export const axisLabel = () => { const t = tokens(); return { color: t.ash, fontFamily: t.font, fontSize: 11 } }
 export const axisChrome = () => {
   const t = tokens()
   return {
     axisLine: { show: false },
     axisTick: { show: false },
-    axisLabel: { color: t.ash, fontFamily: t.mono, fontSize: 11 },
+    axisLabel: axisLabel(),
     splitLine: { show: true, lineStyle: { color: t.rule, width: 1, type: 'solid' as const } },
   }
 }
 
 export const xTime = (min: number, max: number, extra: Record<string, unknown> = {}) => ({
-  type: 'time' as const, min, max, ...axisChrome(), splitLine: { show: false }, axisLabel: { ...axisChrome().axisLabel, hideOverlap: true }, ...extra,
+  type: 'time' as const, min, max, ...axisChrome(), splitLine: { show: false }, axisLabel: { ...axisLabel(), hideOverlap: true }, ...extra,
 })
-
 export const yValue = (extra: Record<string, unknown> = {}) => ({ type: 'value' as const, scale: true, ...axisChrome(), ...extra })
 
-export const fmtTime = (ms: number) => { const d = new Date(ms); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` }
-export const fmtDay = (ms: number) => { const d = new Date(ms); return `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()]} ${d.getDate()}` }
+/** The first line of a tooltip: the time or the date, in secondary ink. */
+export const tipHead = (text: string) => `<div style="color:${token('--ash')};font-size:11px;margin-bottom:4px">${text}</div>`
+/** One tooltip row: a bold value and its unit or label. */
+export const tipRow = (value: string, label: string) => `<div><b>${value}</b> <span style="color:${token('--ash')}">${label}</span></div>`
 
-/** Svelte action: `use:chart={option}`; re-sets the option on change, resizes with the box. */
-export function chart(el: HTMLElement, params: { option: echarts.EChartsCoreOption; group?: string }) {
-  let inst = echarts.init(el, undefined, { renderer: 'canvas' })
-  inst.setOption(params.option, { notMerge: true })
-  if (params.group) { inst.group = params.group; echarts.connect(params.group) }
+const list = (v: unknown): any[] => v == null ? [] : Array.isArray(v) ? v : [v]
+// The parts of an option that ECharts cannot merge in place: when one of them
+// changes, the chart is built again; when none does, the new data morphs in.
+const shape = (o: Option) => JSON.stringify([
+  list(o.series).map(s => [s.type, s.id ?? s.name ?? '', s.xAxisIndex ?? 0, s.yAxisIndex ?? 0]),
+  list(o.grid).length, list(o.xAxis).map(a => a.type), list(o.yAxis).map(a => a.type),
+])
+
+/** Svelte action: `use:chart={{ option }}`. A data change morphs; a change of structure replaces. Resizes with the box. */
+export function chart(el: HTMLElement, params: { option: Option; group?: string }) {
+  const inst = echarts.init(el, undefined, { renderer: 'canvas' })
+  let current = ''
+  const apply = (p: { option: Option; group?: string }) => {
+    const next = shape(p.option)
+    inst.setOption(p.option, next === current ? { replaceMerge: ['graphic'] } : { notMerge: true })
+    current = next
+    if (p.group) { inst.group = p.group; echarts.connect(p.group) }
+  }
+  apply(params)
   const ro = new ResizeObserver(() => inst.resize())
   ro.observe(el)
-  const mq = matchMedia('(prefers-color-scheme: dark)')
-  const onScheme = () => { inst.setOption(params.option, { notMerge: true }) }
-  mq.addEventListener('change', onScheme)
-  return {
-    update(p: { option: echarts.EChartsCoreOption; group?: string }) {
-      params = p
-      inst.setOption(p.option, { notMerge: true })
-      if (p.group) { inst.group = p.group; echarts.connect(p.group) }
-    },
-    destroy() { ro.disconnect(); mq.removeEventListener('change', onScheme); inst.dispose() },
-  }
+  return { update: apply, destroy() { ro.disconnect(); inst.dispose() } }
 }
