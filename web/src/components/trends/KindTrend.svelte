@@ -57,12 +57,11 @@
   <ErrorNote message={res.error} />
 {:else}
   <div class="chart"><MetricChart {kind} range={shown} series={data?.series ?? null} stat="average" title={false} height={340} loading={res.loading} /></div>
-  <TrendFacts {facts} {dim} />
-  {#key kind}<div class="days"><TrendTable days={inWindow} mean={st.mean} decimals={info.decimals} {unit} {dim} /></div>{/key}
+  <div class="cols cols-1-3 below"><TrendFacts {facts} {dim} />{#key kind}<div><TrendTable days={inWindow} mean={st.mean} decimals={info.decimals} {unit} {dim} /></div>{/key}</div>
 {/if}
 
 <style>
   .say { margin: 14px 0 16px; transition: opacity var(--dur) ease; }
   .dim { opacity: 0.55; }
-  .days { margin-top: 20px; }
+  .below { margin-top: 20px; }
 </style>

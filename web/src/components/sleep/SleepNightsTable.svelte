@@ -4,6 +4,7 @@
   import type { HistoryNight } from '../../lib/sleepHistory'
   import { t } from '../../lib/i18n.svelte'
   import * as F from '../../lib/fmt'
+  import ShowMore from '../ShowMore.svelte'
 
   const PAGE = 30
   let { nights, dim = false }: { nights: HistoryNight[]; dim?: boolean } = $props()
@@ -31,13 +32,10 @@
     {/each}
   </tbody>
 </table></div>
-{#if rows.length > shown}
-  <button class="btn more" onclick={() => (shown += PAGE)}>{t('sleep.show_more_n', { n: Math.min(PAGE, rows.length - shown) })}</button>
-{/if}
+<ShowMore bind:shown total={rows.length} step={PAGE} />
 
 <style>
   .table-scroll { transition: opacity var(--dur) ease; }
   .table-scroll.dim { opacity: 0.55; }
   tr.out td { color: var(--mute); }
-  .more { margin-top: 12px; }
 </style>

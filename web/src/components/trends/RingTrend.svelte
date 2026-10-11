@@ -47,10 +47,9 @@
   decimals={metric.decimals} {unit} stat="average" title={false} height={340}
   refs={baseline != null ? [{ value: baseline, label: t('charts.baseline', { n: F.num(baseline, metric.decimals) }) }] : []}
   bands={baseline != null ? [{ from: baseline * 0.95, to: baseline * 1.05 }] : []} />
-<TrendFacts {facts} />
-{#key metric.id}<div class="days"><TrendTable days={inWindow} mean={st.mean} decimals={metric.decimals} {unit} /></div>{/key}
+<div class="cols cols-1-3 below"><TrendFacts {facts} />{#key metric.id}<div><TrendTable days={inWindow} mean={st.mean} decimals={metric.decimals} {unit} /></div>{/key}</div>
 
 <style>
   .say { margin: 14px 0 16px; }
-  .days { margin-top: 20px; }
+  .below { margin-top: 20px; }
 </style>

@@ -4,6 +4,7 @@
   import Section from '../components/Section.svelte'
   import KV from '../components/KV.svelte'
   import Empty from '../components/Empty.svelte'
+  import ShowMore from '../components/ShowMore.svelte'
   import SleepHistory from '../components/sleep/SleepHistory.svelte'
   import { hub } from '../lib/store.svelte'
   import { t } from '../lib/i18n.svelte'
@@ -40,8 +41,6 @@
       </div>
     </Section>
   {/each}
-  {#if nights.length > shown}
-    <div class="section"><button class="btn" onclick={() => (shown += 8)}>{t('sleep.show_more')}</button></div>
-  {/if}
+  {#if nights.length > 8}<div class="section flush"><ShowMore bind:shown total={nights.length} step={8} /></div>{/if}
   <SleepHistory />
 </div>

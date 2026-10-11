@@ -4,8 +4,9 @@
   import type { DayPoint } from '../../lib/api'
   import { t } from '../../lib/i18n.svelte'
   import * as F from '../../lib/fmt'
+  import ShowMore from '../ShowMore.svelte'
 
-  const PAGE = 60
+  const PAGE = 30
   let { days, mean, decimals, unit = '', dim = false }: { days: DayPoint[]; mean: number | null; decimals: number; unit?: string; dim?: boolean } = $props()
   let shown = $state(PAGE)
   const rows = $derived([...days].reverse())
@@ -29,13 +30,10 @@
       {/each}
     </tbody>
   </table></div>
-  {#if rows.length > shown}
-    <button class="btn more" onclick={() => (shown += PAGE)}>{t('trends.show_more', { n: Math.min(PAGE, rows.length - shown) })}</button>
-  {/if}
+  <ShowMore bind:shown total={rows.length} step={PAGE} />
 {/if}
 
 <style>
   .table-scroll { transition: opacity var(--dur) ease; }
   .table-scroll.dim { opacity: 0.55; }
-  .more { margin-top: 12px; }
 </style>

@@ -1,10 +1,11 @@
 <script lang="ts">
   // Every workout of the range, newest first, 25 at a time.
-  import { countsInTotals } from '../../lib/activity'
+  import { countsInTotals, MAX_WORKOUT_MIN } from '../../lib/activity'
   import type { HealthWorkout } from '../../lib/api'
   import { activityTitle } from '../../lib/kinds'
   import { t, intlTag } from '../../lib/i18n.svelte'
   import * as F from '../../lib/fmt'
+  import ShowMore from '../ShowMore.svelte'
 
   let { workouts }: { workouts: HealthWorkout[] } = $props()
   const PAGE = 25
@@ -22,7 +23,7 @@
     {#each workouts.slice(0, shown) as w}
       <tr>
         <td>{when(w.start_unix)}</td>
-        <td>{activityTitle(w.activity)}{#if w.user_entered}<span class="pill neutral mark">{t('activity.by_hand')}</span>{/if}{#if !countsInTotals(w)}<span class="pill warn mark">{t('activity.not_in_totals')}</span>{/if}</td>
+        <td>{activityTitle(w.activity)}{#if w.user_entered}<span class="pill neutral mark">{t('activity.by_hand')}</span>{/if}{#if !countsInTotals(w)} †{/if}</td>
         <td class="r">{w.duration_min != null ? F.minutesText(w.duration_min) : '—'}</td>
         <td class="r">{w.kcal != null ? `${F.num(w.kcal)} kcal` : '—'}</td>
         <td class="r">{w.distance_m ? `${F.num(w.distance_m / 1000, 2)} km` : '—'}</td>
@@ -32,13 +33,10 @@
     {/each}
   </tbody>
 </table></div>
-<div class="more">
-  <span class="sub small">{t('activity.shown_of', { n: F.num(Math.min(shown, workouts.length)), total: F.num(workouts.length) })}</span>
-  {#if workouts.length > shown}<button class="btn" onclick={() => (shown += PAGE * 2)}>{t('activity.show_more')}</button>{/if}
-</div>
+{#if workouts.some(w => !countsInTotals(w))}<p class="sub small" style="margin: 10px 0 0">{t('activity.left_out_mark', { h: MAX_WORKOUT_MIN / 60 })}</p>{/if}
+<ShowMore bind:shown total={workouts.length} step={PAGE} />
 
 <style>
   .mark { margin-left: 8px; font-weight: 500; }
   .src { color: var(--ash); }
-  .more { display: flex; align-items: center; gap: 16px; margin-top: 12px; min-height: 34px; }
 </style>

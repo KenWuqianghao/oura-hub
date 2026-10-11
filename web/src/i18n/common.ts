@@ -1,7 +1,7 @@
 // Words that every page shares.
 export const en = {
   today: 'Today', yesterday: 'Yesterday', just_now: 'just now', hr: 'hr', min: 'min',
-  retry: 'Try again', opening: 'Opening…',
+  retry: 'Try again', shown_of: '{n} of {total} shown', show_more_n: 'Show {n} more', opening: 'Opening…',
   no_data: 'No data', no_data_period: 'No data in this period.', no_data_period_has: 'No data in this period. The hub has data from {first} to {newest}.', no_data_hub: 'The hub has no data of this kind yet.',
   out_of_period: 'No data in this period: {list}.', out_of_period_all: 'No data in this period, so the chart shows all dates: {list}.', kind_span: '{kind} ({span})', not_held: 'The hub has no data yet for: {list}.',
   range: 'Time range', days_n: '{n} d',
@@ -20,7 +20,7 @@ export const en = {
 } as const
 export const zh = {
   today: '今天', yesterday: '昨天', just_now: '刚刚', hr: '小时', min: '分钟',
-  retry: '重试', opening: '正在打开…',
+  retry: '重试', shown_of: '已显示 {n} / {total}', show_more_n: '再显示 {n} 条', opening: '正在打开…',
   no_data: '无数据', no_data_period: '这段时间没有数据。', no_data_period_has: '这段时间没有数据。Hub 中的数据从 {first} 到 {newest}。', no_data_hub: 'Hub 中还没有这类数据。',
   out_of_period: '这段时间没有数据：{list}。', out_of_period_all: '这段时间没有数据，图表改为显示全部日期：{list}。', kind_span: '{kind}（{span}）', not_held: 'Hub 中还没有数据：{list}。',
   range: '时间范围', days_n: '{n} 天',

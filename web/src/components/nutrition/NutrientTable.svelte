@@ -29,7 +29,7 @@
           {@const limit = nutrient.ref?.role === 'limit'}
           <tr class:none={!days}>
             <td class="name">{kindTitle(nutrient.kind)}{#if limit && ratio != null && ratio > 1} <span class="pill warn">{t('nutrition.above_limit')}</span>{/if}</td>
-            <td class="r"><Num value={mean} decimals={kindInfo(nutrient.kind).decimals} />{#if mean != null} <span class="u">{u}</span>{/if}</td>
+            <td class="r"><Num value={mean} decimals={kindInfo(nutrient.kind).decimals} />{#if mean != null}&nbsp;<span class="u">{u}</span>{/if}</td>
             <td class="r">{F.num(days)}</td>
             <td class="r">{#if nutrient.ref}{#if limit}<span class="u lim">{t('nutrition.limit')}</span>{/if}{refText(nutrient.ref.value)} <span class="u">{u}</span>{:else}<span class="u">{t('nutrition.no_dv')}</span>{/if}</td>
             <td class="r">{#if nutrient.ref}<b><Num value={ratio == null ? null : ratio * 100} />{ratio == null ? '' : '%'}</b>{/if}</td>
