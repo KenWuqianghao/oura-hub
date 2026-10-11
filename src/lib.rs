@@ -9,6 +9,7 @@
 
 pub mod agent;
 pub mod health;
+pub mod kinds;
 pub mod mcp;
 pub mod store;
 pub mod web;
