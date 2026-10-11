@@ -4,10 +4,10 @@
   // kind catalogue picks the chart and the colour; the loader brings the data.
   import Num from './Num.svelte'
   import Skeleton from './Skeleton.svelte'
-  import { chart, base, tokens, color as cssColor, axisChrome, axisLabel, tipHead, tipRow, type Option } from '../lib/charts'
+  import { chart, base, tokens, color as cssColor, axisChrome, axisLabel, bucketAxis, bucketLabel, tipHead, tipRow, type Option } from '../lib/charts'
   import { resource, loadDaily } from '../lib/health.svelte'
   import { kindInfo, kindTitle, unitLabel, type ChartType } from '../lib/kinds'
-  import { bucketize, bridge, rolling, stats, windowOf, MAX_GAP, type Bucket, type RangeId } from '../lib/range'
+  import { bucketize, bridge, rolling, stats, windowOf, MAX_GAP, type RangeId } from '../lib/range'
   import { headline, type StatChoice } from '../lib/metric'
   import { t, intlTag } from '../lib/i18n.svelte'
   import * as F from '../lib/fmt'
@@ -46,16 +46,8 @@
   const head = $derived(headline(inWindow, data?.agg ?? 'mean', kindOf, stat))
   const unit = $derived(unitLabel(data?.unit ?? ''))
   const trend = $derived(kindOf === 'line' && buckets.size === 'day' && inWindow.length > 7)
-  const ymdDate = (ymd: string) => F.parseYmd(ymd) ?? new Date()
   const rangeText = $derived(F.dateRange(win.start, win.end))
 
-  function bucketLabel(b: Bucket, long: boolean): string {
-    const d = ymdDate(b.start)
-    if (buckets.size === 'month') return long ? new Intl.DateTimeFormat(intlTag(), { year: 'numeric', month: 'long' }).format(d) : new Intl.DateTimeFormat(intlTag(), d.getMonth() === 0 ? { year: 'numeric' } : { month: 'short' }).format(d)
-    if (buckets.size === 'week') return long ? F.dateRange(b.start, b.end) : F.monthDayOf(d)
-    if (long) return new Intl.DateTimeFormat(intlTag(), { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }).format(d)
-    return buckets.points.length <= 7 ? new Intl.DateTimeFormat(intlTag(), { weekday: 'short' }).format(d) : F.monthDayOf(d)
-  }
   const compact = (v: number) => new Intl.NumberFormat(intlTag(), { notation: 'compact', maximumFractionDigits: Math.abs(v) < 10 ? Math.max(info.decimals, 1) : 1 }).format(v)
 
   const option = $derived.by((): Option => {
@@ -92,14 +84,14 @@
     return {
       ...base(),
       grid: { left: 8, right: 12, top: 14, bottom: 4, containLabel: true },
-      xAxis: { type: 'category', data: pts.map(p => bucketLabel(p, false)), boundaryGap: kindOf !== 'line', ...axisChrome(), splitLine: { show: false }, axisLabel: { ...axisLabel(), hideOverlap: true, interval: pts.length <= 7 ? 0 : 'auto' } },
+      xAxis: bucketAxis(pts, buckets.size, { boundaryGap: kindOf !== 'line' }),
       yAxis: { type: 'value', scale: kindOf !== 'bar', min: kindOf === 'bar' ? 0 : undefined, splitNumber: 3, ...axisChrome(), axisLabel: { ...axisLabel(), formatter: compact } },
       tooltip: { ...(base().tooltip as object), axisPointer: { type: kindOf === 'line' ? 'line' : 'shadow', lineStyle: { color: tk.ruleStrong, width: 1 }, shadowStyle: { color: tk.band } },
         formatter: (params: any) => {
           const p = pts[(Array.isArray(params) ? params[0] : params).dataIndex]
           if (!p) return ''
-          if (p.value == null) return tipHead(bucketLabel(p, true)) + `<div style="color:${tk.ash}">${t('common.no_data')}</div>`
-          const rows = [tipHead(bucketLabel(p, true))]
+          if (p.value == null) return tipHead(bucketLabel(p, buckets.size)) + `<div style="color:${tk.ash}">${t('common.no_data')}</div>`
+          const rows = [tipHead(bucketLabel(p, buckets.size))]
           if (kindOf === 'range') rows.push(tipRow(`${F.num(p.min, dec)}–${F.num(p.max, dec)}`, unit), tipRow(F.num(p.value, dec), t('charts.average')))
           else rows.push(tipRow(F.num(p.value, dec), [unit, buckets.averaged ? t('charts.daily_average') : buckets.size !== 'day' ? t('charts.average') : ''].filter(Boolean).join(' · ')))
           const tr = trend ? rolling(values)[(Array.isArray(params) ? params[0] : params).dataIndex] : null

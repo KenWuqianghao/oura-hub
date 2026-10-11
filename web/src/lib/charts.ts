@@ -6,6 +6,9 @@ import { LineChart, BarChart, CustomChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent, LegendComponent, AxisPointerComponent, GraphicComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { theme } from './theme.svelte'
+import { intlTag } from './i18n.svelte'
+import type { BucketSize } from './range'
+import * as F from './fmt'
 
 echarts.use([LineChart, BarChart, CustomChart, GridComponent, TooltipComponent, MarkLineComponent, MarkAreaComponent, LegendComponent, AxisPointerComponent, GraphicComponent, CanvasRenderer])
 
@@ -71,6 +74,52 @@ export const yValue = (extra: Record<string, unknown> = {}) => ({ type: 'value' 
 export const tipHead = (text: string) => `<div style="color:${token('--ash')};font-size:11px;margin-bottom:4px">${text}</div>`
 /** One tooltip row: a bold value and its unit or label. */
 export const tipRow = (value: string, label: string) => `<div><b>${value}</b> <span style="color:${token('--ash')}">${label}</span></div>`
+
+const fmtDay = (opts: Intl.DateTimeFormatOptions, ymd: string) => new Intl.DateTimeFormat(intlTag(), opts).format(F.parseYmd(ymd) ?? new Date())
+/** A mark in full, for a tooltip: the day with its weekday, the dates of a week, or the month with its year. */
+export function bucketLabel(b: { start: string; end: string }, size: BucketSize): string {
+  if (size === 'month') return fmtDay({ year: 'numeric', month: 'long' }, b.start)
+  if (size === 'week') return F.dateRange(b.start, b.end)
+  return fmtDay({ weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' }, b.start)
+}
+
+/**
+ * The axis text of each mark, and the marks that get one. Up to seven days: every
+ * weekday. More days: about seven dates, counted back from the newest. Weeks and
+ * months: the first mark of a month, every few months counted from January, so
+ * January is always there and reads as its year. Many years: years only.
+ */
+function ticks(starts: string[], size: BucketSize): { label: string; show: boolean }[] {
+  const n = starts.length
+  if (size === 'day') {
+    if (n <= 7) return starts.map(s => ({ label: fmtDay({ weekday: 'short' }, s), show: true }))
+    const step = Math.ceil(n / 7)
+    let year = ''
+    return starts.map((s, i) => {
+      if ((n - 1 - i) % step) return { label: '', show: false }
+      const label = year && s.slice(0, 4) !== year ? F.fullDateOf(F.dayStartMs(s)) : F.monthDay(s)
+      year = s.slice(0, 4)
+      return { label, show: true }
+    })
+  }
+  const index = (s: string) => +s.slice(0, 4) * 12 + +s.slice(5, 7) - 1
+  const months = n ? index(starts[n - 1]) - index(starts[0]) + 1 : 0
+  const every = [1, 2, 3, 4, 6, 12, 24, 60].find(e => Math.ceil(months / e) <= (e >= 12 ? 12 : 7)) ?? 120
+  return starts.map((s, i) => {
+    const m = index(s), first = i === 0 ? size === 'month' : index(starts[i - 1]) !== m
+    if (!first || m % every) return { label: '', show: false }
+    return { label: fmtDay(every >= 12 || m % 12 === 0 ? { year: 'numeric' } : { month: 'short' }, s), show: true }
+  })
+}
+
+/** The x axis of a chart with one mark per day, week, or month. Every category chart of the site uses it, so the dates read the same everywhere. */
+export function bucketAxis(points: { start: string }[], size: BucketSize, extra: Record<string, unknown> = {}) {
+  const tk = ticks(points.map(p => p.start), size)
+  return {
+    type: 'category' as const, data: tk.map(x => x.label), ...axisChrome(), splitLine: { show: false },
+    axisLabel: { ...axisLabel(), hideOverlap: true, interval: (i: number) => tk[i]?.show ?? false }, ...extra,
+  }
+}
 
 const list = (v: unknown): any[] => v == null ? [] : Array.isArray(v) ? v : [v]
 // The parts of an option that ECharts cannot merge in place: when one of them
