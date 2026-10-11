@@ -3,15 +3,15 @@
   // against the period of the same length before it.
   import { api } from '../../lib/api'
   import { daily, resource } from '../../lib/health.svelte'
-  import { windowOf, type RangeId } from '../../lib/range'
-  import { compare, windowBefore } from '../../lib/activity'
+  import { windowBefore, windowOf, type RangeId } from '../../lib/range'
+  import { compare } from '../../lib/activity'
   import { t } from '../../lib/i18n.svelte'
   import * as F from '../../lib/fmt'
 
   let { range }: { range: RangeId } = $props()
   const now = daily(() => 'step_count', () => range)
   const before = resource(async () => {
-    const r = range, win = windowBefore(r, windowOf(r, []))
+    const r = range, win = windowBefore(r, windowOf(r, []).start)
     const days = win ? (await api.healthDaily({ kinds: ['step_count'], start_ymd: win.start, end_ymd: win.end })).kinds[0]?.days ?? [] : []
     return { range: r, days }
   })
@@ -25,9 +25,9 @@
     const win = windowOf(shown.range, shown.now)
     const days = shown.now.filter(d => d.ymd >= win.start && d.ymd <= win.end)
     const c = compare(days, shown.before)
-    if (c.mean == null) return t('activity.lead_none', { period: t(`activity.period_${shown.range}`) })
-    const vars = { n: F.num(c.mean), period: t(`activity.period_${shown.range}`), before: t(`activity.before_${shown.range}`), pct: F.num(Math.abs(c.pct ?? 0)) }
-    return c.pct == null ? t('activity.lead_only', vars) : Math.abs(c.pct) < 0.5 ? t('activity.lead_same', vars) : t(c.pct > 0 ? 'activity.lead_more' : 'activity.lead_less', vars)
+    if (c.mean == null) return t('activity.lead_none', { period: t(`common.period_${shown.range}`) })
+    const vars = { n: F.num(c.mean), period: t(`common.period_${shown.range}`), before: t(`common.before_${shown.range}`), diff: F.num(Math.abs(c.diff ?? 0)) }
+    return c.diff == null ? t('activity.lead_only', vars) : !c.diff ? t('activity.lead_same', vars) : t(c.diff > 0 ? 'activity.lead_more' : 'activity.lead_less', vars)
   })
   const basis = $derived.by(() => {
     if (!shown) return ''

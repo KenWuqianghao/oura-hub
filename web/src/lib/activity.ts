@@ -1,29 +1,15 @@
 // The Activity page's calculations, pure: the comparison in the lead sentence, the
 // workout totals, the training buckets, and the year grid.
-import type { DayPoint, HealthKind, HealthWorkout } from './api'
+import type { DayPoint, HealthWorkout } from './api'
 import { addDays, parseYmd, todayYmd } from './fmt'
-import { rangeDays, spanDays, type RangeId } from './range'
+import { spanDays } from './range'
 
-/** The window of the same length that ends the day before `win` starts. "All" has no period before it. */
-export function windowBefore(range: RangeId, win: { start: string; end: string }): { start: string; end: string } | null {
-  if (range === 'All') return null
-  return { start: addDays(win.start, -rangeDays(range)), end: addDays(win.start, -1) }
-}
-
-export interface Comparison { mean: number | null; before: number | null; pct: number | null }
-/** The mean of the days with data now, and its change in percent against the period before. */
+export interface Comparison { mean: number | null; before: number | null; diff: number | null }
+/** The mean of the days with data now, and its difference from the period before, both rounded as the page shows them. */
 export function compare(now: DayPoint[], before: DayPoint[]): Comparison {
   const mean = (d: DayPoint[]) => d.length ? d.reduce((a, p) => a + p.value, 0) / d.length : null
   const a = mean(now), b = mean(before)
-  return { mean: a, before: b, pct: a != null && b ? (a - b) / b * 100 : null }
-}
-
-/** The first and the newest day of a kind on the hub, or null when the hub holds no row of it. */
-export function coverage(kinds: HealthKind[], kind: string): { first: string; newest: string } | null {
-  const k = kinds.find(x => x.kind === kind)
-  if (!k) return null
-  const newest = todayYmd(new Date(k.newest_end_unix * 1000))
-  return { first: k.first_start_unix != null ? todayYmd(new Date(k.first_start_unix * 1000)) : newest, newest }
+  return { mean: a, before: b, diff: a != null && b != null ? Math.round(a) - Math.round(b) : null }
 }
 
 /** The hub can hold one workout twice. Rows with the same type, start, end, and source count once. */
