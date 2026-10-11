@@ -52,6 +52,8 @@ Read these pages as the examples:
 2. Add the same key to `zh`. The type check fails until you do.
 3. Call `t('<area>.<key>')`. Put a variable in the text as `{name}` and give it as
    `t(key, { name })`.
+4. For a count in English, write the two forms as `{n} {n:day|days}`. The first
+   word shows when `n` is 1.
 
 Keep units, product names, and code literals as they are. Do not write a date, a
 number, or a duration by hand: use `src/lib/fmt.ts`.
