@@ -30,7 +30,7 @@ export const en = {
   cal_recent: 'The last 53 weeks, with {n} {n:logged day|logged days}. The calendar does not follow the time range.',
   cal_year: 'Logged days in the last 53 weeks: {recent}. That is too few for a chart, so the calendar shows {year}, the year with the most logged days ({n}). The calendar does not follow the time range.',
   cal_hint: 'Point at a day to read it.', cal_sep: ': ', cal_no_log: 'no log', cal_less: 'less', cal_more: 'more', cal_label: 'Logged days: {n}, {range}',
-  tip_no_log: 'No food log', tip_mean_of: 'average of the logged days: {n}', tip_difference: 'eaten minus burned',
+  tip_no_log: 'No food log', tip_mean_of: 'average of {n} {n:logged day|logged days}', tip_difference: 'eaten minus burned',
 } as const
 export const zh = {
   sub: '数据来自 Apple Health 中的饮食记录。本页的平均值一律按“记录日”计算：当天只要记有膳食能量就算一个记录日，即使没有记全。',

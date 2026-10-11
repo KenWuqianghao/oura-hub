@@ -32,7 +32,7 @@ export function energyOption(intake: Buckets, burned: Buckets): Option {
       if (!a) return ''
       if (a.value == null) return tipHead(bucketLabel(a, intake.size)) + noLog()
       const rows = [tipHead(bucketLabel(a, intake.size)), tipRow(F.num(a.value), `kcal · ${t('nutrition.intake')}`)]
-      if (b?.value != null) rows.push(tipRow(F.num(b.value), `kcal · ${t('nutrition.burned')}`), tipRow(F.signed(a.value - b.value), `kcal · ${t('nutrition.tip_difference')}`))
+      if (b?.value != null) rows.push(tipRow(F.num(b.value), `kcal · ${t('nutrition.burned')}`), tipRow(F.signed(Math.round(a.value) - Math.round(b.value)), `kcal · ${t('nutrition.tip_difference')}`))
       return rows.join('') + daysNote(intake, a)
     }),
     series: [
