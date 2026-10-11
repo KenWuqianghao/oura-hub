@@ -44,7 +44,7 @@ export const KINDS: Record<KnownKind, KindInfo> = {
 }
 
 const FALLBACK: KindInfo = k('other', 'line', 1)
-export const isKnownKind = (kind: string): kind is KnownKind => Object.hasOwn(KINDS, kind)
+const isKnownKind = (kind: string): kind is KnownKind => Object.hasOwn(KINDS, kind)
 export const kindInfo = (kind: string): KindInfo => isKnownKind(kind) ? KINDS[kind] : FALLBACK
 export const kindsIn = (group: Group): KnownKind[] => (Object.keys(KINDS) as KnownKind[]).filter(kind => KINDS[kind].group === group)
 
@@ -52,11 +52,18 @@ const sentence = (snake: string) => { const s = snake.replace(/_/g, ' ').trim();
 export const kindTitle = (kind: string): string => isKnownKind(kind) ? t(`kinds.${kind}`) : sentence(kind)
 export const kindAbout = (kind: string): string => isKnownKind(kind) ? t(`kinds.${kind}_about`) : ''
 export const groupTitle = (group: Group): string => t(`kinds.group_${group}`)
-/** A workout activity name from the hub ("strength_training", "activity_31") or from the ring summary ("Basketball"). */
+/** A workout activity name from the hub ("strength_training", "activity_31") or from the ring summary ("Basketball"). A HealthKit type with no name shows its number, so two such types stay apart. */
 export function activityTitle(activity: string): string {
-  const key = `kinds.act_${activity.trim().toLowerCase().replace(/\s+/g, '_')}`
-  return has(key) ? t(key) : /^activity_\d+$/i.test(activity.trim().replace(/\s+/g, '_')) ? t('kinds.act_unknown') : sentence(activity)
+  const id = activity.trim().toLowerCase().replace(/\s+/g, '_'), key = `kinds.act_${id}`
+  if (has(key)) return t(key)
+  const n = /^activity_(\d+)$/.exec(id)?.[1]
+  return n ? t('kinds.act_unknown', { n }) : sentence(activity)
 }
+
+/** Kinds that have a section of their own on a page: a link to the kind goes there, not to a chart on Trends. */
+export const KIND_SECTION: Record<string, string> = { sleep_analysis: '#/sleep/history', workout: '#/activity/workouts' }
+/** Where the link to a kind goes. */
+export const kindHref = (kind: string) => KIND_SECTION[kind] ?? `#/trends/${kind}`
 
 const UNIT_WORDS = ['steps', 'flights', 'events', 'effort'] as const
 /** A unit of the hub for reading: word units are translated, symbols stay as they are. */

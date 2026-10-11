@@ -2,7 +2,7 @@
   // The workouts of the range by activity type: sessions, time, energy, distance, heart rate.
   import { totalsByType, countsInTotals, MAX_WORKOUT_MIN } from '../../lib/activity'
   import type { HealthWorkout } from '../../lib/api'
-  import { workoutTitle } from '../../lib/activity-charts'
+  import { activityTitle } from '../../lib/kinds'
   import { t } from '../../lib/i18n.svelte'
   import * as F from '../../lib/fmt'
 
@@ -21,7 +21,7 @@
   <tbody>
     {#each rows as r (r.activity)}
       <tr>
-        <td class="text">{workoutTitle(r.activity)}</td><td class="r">{F.num(r.sessions)}</td><td class="r">{F.minutesText(r.minutes)}</td><td class="r">{F.minutesText(r.minutes / r.sessions)}</td>
+        <td class="text">{activityTitle(r.activity)}</td><td class="r">{F.num(r.sessions)}</td><td class="r">{F.minutesText(r.minutes)}</td><td class="r">{F.minutesText(r.minutes / r.sessions)}</td>
         <td class="r">{r.kcal != null ? `${F.num(r.kcal)} kcal` : '—'}</td><td class="r">{km(r.distance_m)}</td><td class="r">{r.hr != null ? `${F.num(r.hr)} bpm` : '—'}</td>
       </tr>
     {/each}

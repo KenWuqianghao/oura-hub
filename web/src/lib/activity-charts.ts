@@ -41,12 +41,7 @@ export function trainingColors(types: string[]): string[] {
   let slot = 0
   return types.map(type => type === OTHER ? mix(tk.mute, tk.surface, 0.6) : mix(tk.activity, tk.surface, TINTS[slot++] ?? 0.28))
 }
-/** The hub sends "activity_31" for a HealthKit type it has no name for: show the number, so two such types stay apart. */
-export function workoutTitle(activity: string): string {
-  const id = /^activity_(\d+)$/.exec(activity)?.[1]
-  return id ? t('activity.unnamed_type', { n: id }) : activityTitle(activity)
-}
-export const trainingTitle = (type: string) => type === OTHER ? t('activity.other_types') : workoutTitle(type)
+export const trainingTitle = (type: string) => type === OTHER ? t('activity.other_types') : activityTitle(type)
 
 const SLOTS = 5
 /** Training time for each bucket, stacked by type. The axis is in hours when a bucket holds four hours or more. The series count is fixed, so a range change morphs the bars. */

@@ -2,7 +2,7 @@
   // Every workout of the range, newest first, 25 at a time.
   import { countsInTotals } from '../../lib/activity'
   import type { HealthWorkout } from '../../lib/api'
-  import { workoutTitle } from '../../lib/activity-charts'
+  import { activityTitle } from '../../lib/kinds'
   import { t, intlTag } from '../../lib/i18n.svelte'
   import * as F from '../../lib/fmt'
 
@@ -22,7 +22,7 @@
     {#each workouts.slice(0, shown) as w}
       <tr>
         <td>{when(w.start_unix)}</td>
-        <td>{workoutTitle(w.activity)}{#if w.user_entered}<span class="pill neutral mark">{t('activity.by_hand')}</span>{/if}{#if !countsInTotals(w)}<span class="pill warn mark">{t('activity.not_in_totals')}</span>{/if}</td>
+        <td>{activityTitle(w.activity)}{#if w.user_entered}<span class="pill neutral mark">{t('activity.by_hand')}</span>{/if}{#if !countsInTotals(w)}<span class="pill warn mark">{t('activity.not_in_totals')}</span>{/if}</td>
         <td class="r">{w.duration_min != null ? F.minutesText(w.duration_min) : '—'}</td>
         <td class="r">{w.kcal != null ? `${F.num(w.kcal)} kcal` : '—'}</td>
         <td class="r">{w.distance_m ? `${F.num(w.distance_m / 1000, 2)} km` : '—'}</td>

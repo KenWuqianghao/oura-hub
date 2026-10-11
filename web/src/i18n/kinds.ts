@@ -104,7 +104,9 @@ const ACTIVITIES = {
   walking: ['Walking', '步行'], running: ['Running', '跑步'], cycling: ['Cycling', '骑行'], hiking: ['Hiking', '徒步'], swimming: ['Swimming', '游泳'],
   strength_training: ['Strength training', '力量训练'], functional_strength_training: ['Functional strength training', '功能性力量训练'],
   elliptical: ['Elliptical', '椭圆机'], basketball: ['Basketball', '篮球'], cross_training: ['Cross training', '交叉训练'], rowing: ['Rowing', '划船'],
-  flexibility: ['Flexibility', '柔韧性训练'], workout: ['Workout', '体能训练'], other: ['Other', '其他'], unknown: ['Workout', '体能训练'],
+  flexibility: ['Flexibility', '柔韧性训练'], workout: ['Workout', '体能训练'], other: ['Other', '其他'],
+  // HealthKit type 31, paddle sports: the hub has no name for it and sends the number
+  activity_31: ['Paddle sports', '桨类运动'], unknown: ['Workout (type {n})', '体能训练（类型 {n}）'],
 } as const
 
 export type KnownKind = keyof typeof KINDS
