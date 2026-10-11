@@ -212,7 +212,7 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
             description: "Raw Apple Health samples of one kind, newest first, in the units the phone sent (a fraction for a percentage, grams for every nutrient). Use it for the detail inside a day or two: the heart rate curve of one workout, the stages of one night. For anything longer use get_health_daily (one value per day, any kind, years in one call), get_health_sleep (nights), or get_workouts; this tool stops at `limit` rows and heart_rate alone has hundreds per day. Call list_health_kinds for the kinds this hub holds. A row has `value` and `unit` for a quantity and `category` for a category (sleep_analysis, stand_hour, mindful_session); workout and electrocardiogram have both. Either `days` back from now, or an explicit `start_unix`/`end_unix` window.",
             input_schema: json!({ "type": "object", "properties": {
                 "kind": { "type": "string", "description": "Which kind to return; see list_health_kinds." },
-                "days": { "type": "integer", "minimum": 1, "maximum": 365, "default": 7 },
+                "days": { "type": "integer", "minimum": 1, "maximum": MAX_WINDOW_DAYS, "default": 7, "description": "How many days back from now; a kind with no recent rows needs a long window." },
                 "start_unix": { "type": "number", "description": "Window start (unix seconds); overrides days." },
                 "end_unix": { "type": "number", "description": "Window end (unix seconds); default now." },
                 "limit": { "type": "integer", "minimum": 1, "maximum": 20000, "default": 500 }
@@ -307,7 +307,8 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
         if name == "get_health_samples" {
             let kind = args["kind"].as_str().ok_or("kind is required")?;
             let limit = args["limit"].as_u64().unwrap_or(500).clamp(1, 20000) as usize;
-            let start = args["start_unix"].as_f64().unwrap_or(now as f64 - days(7) as f64 * 86400.0);
+            let back = args["days"].as_i64().unwrap_or(7).clamp(1, MAX_WINDOW_DAYS);
+            let start = args["start_unix"].as_f64().unwrap_or((now - back * 86400) as f64);
             let end = args["end_unix"].as_f64();
             let rows = store_for_handler
                 .health_rows_between(Some(kind), start, end, limit)

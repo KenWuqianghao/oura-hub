@@ -355,3 +355,16 @@ async fn agent_routes_need_the_token_and_validate_input() {
     let (s, _) = send(&app, post("/api/agent/ask", None, json!({ "provider": "claude", "prompt": "hi" }))).await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
 }
+
+#[tokio::test]
+async fn health_samples_reach_back_past_a_year() {
+    let app = app();
+    let start = oura_hub::now_unix() as f64 - 700.0 * 86400.0;
+    let batch = json!({ "samples": [{ "uuid": "a1", "kind": "audio_exposure_event", "start_unix": start, "end_unix": start + 60.0, "category": "loud" }] });
+    let (s, _) = send(&app, post("/ingest/health", Some(TOKEN), batch)).await;
+    assert_eq!(s, StatusCode::OK);
+
+    let (s, r) = send(&app, post("/api/tool/get_health_samples", Some(TOKEN), json!({ "kind": "audio_exposure_event", "days": 4000 }))).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(r["samples"][0]["uuid"], "a1", "a row older than 365 days is in a 4000-day window: {r}");
+}
