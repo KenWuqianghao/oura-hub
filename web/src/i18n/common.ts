@@ -1,0 +1,33 @@
+// Words that every page shares.
+export const en = {
+  today: 'Today', yesterday: 'Yesterday', just_now: 'just now', hr: 'hr', min: 'min',
+  retry: 'Try again', opening: 'Opening…', in_progress_text: 'This page is being built.',
+  no_data: 'No data', no_data_range: 'No data in this range',
+  range: 'Time range', days_n: '{n} d',
+  range_W: 'W', range_M: 'M', range_6M: '6M', range_Y: 'Y', range_All: 'All',
+  range_W_title: 'Last 7 days', range_M_title: 'Last 30 days', range_6M_title: 'Last 6 months', range_Y_title: 'Last year', range_All_title: 'All data',
+  stat_range: 'Range', stat_latest: 'Latest', stat_total: 'Total', stat_daily_average: 'Daily average', stat_average: 'Average',
+  deep: 'Deep', core: 'Core', rem: 'REM', awake: 'Awake',
+  pct_deep: '{n}% deep', pct_core: '{n}% core', pct_rem: '{n}% REM', pct_awake: '{n}% awake', list_sep: ', ',
+  unit_steps: 'steps', unit_flights: 'flights', unit_events: 'events', unit_effort: 'effort',
+  heart_rate: 'Heart rate', resting_heart_rate: 'Resting heart rate', lowest_heart_rate: 'Lowest heart rate', hrv: 'HRV', skin_temp: 'Skin temperature',
+  blood_oxygen: 'Blood oxygen', steps: 'Steps', active_energy: 'Active energy', exercise: 'Exercise', stand_hours: 'Stand hours', distance: 'Distance',
+  in_bed: 'In bed', asleep: 'Asleep', efficiency: 'Efficiency', sleep_score: 'Sleep score', stages: 'Stages', fell_asleep_in: 'Fell asleep in',
+  waso: 'Awake after onset', awakenings: 'Awakenings', cycles: 'Cycles', first_rem_after: 'First REM after', bedtime_adjusted: 'bedtime adjusted',
+} as const
+export const zh = {
+  today: '今天', yesterday: '昨天', just_now: '刚刚', hr: '小时', min: '分钟',
+  retry: '重试', opening: '正在打开…', in_progress_text: '这个页面正在制作。',
+  no_data: '无数据', no_data_range: '这段时间没有数据',
+  range: '时间范围', days_n: '{n} 天',
+  range_W: '周', range_M: '月', range_6M: '6个月', range_Y: '年', range_All: '全部',
+  range_W_title: '最近 7 天', range_M_title: '最近 30 天', range_6M_title: '最近 6 个月', range_Y_title: '最近一年', range_All_title: '全部数据',
+  stat_range: '范围', stat_latest: '最新', stat_total: '总计', stat_daily_average: '日均', stat_average: '平均',
+  deep: '深睡', core: '核心睡眠', rem: '快速眼动', awake: '清醒',
+  pct_deep: '深睡 {n}%', pct_core: '核心 {n}%', pct_rem: '快速眼动 {n}%', pct_awake: '清醒 {n}%', list_sep: '，',
+  unit_steps: '步', unit_flights: '层', unit_events: '次', unit_effort: '强度',
+  heart_rate: '心率', resting_heart_rate: '静息心率', lowest_heart_rate: '最低心率', hrv: '心率变异性', skin_temp: '皮肤温度',
+  blood_oxygen: '血氧', steps: '步数', active_energy: '活动能量', exercise: '锻炼', stand_hours: '站立小时数', distance: '距离',
+  in_bed: '卧床', asleep: '睡着', efficiency: '睡眠效率', sleep_score: '睡眠分数', stages: '睡眠阶段', fell_asleep_in: '入睡用时',
+  waso: '入睡后清醒', awakenings: '醒来次数', cycles: '睡眠周期', first_rem_after: '首次快速眼动', bedtime_adjusted: '就寝时间已校正',
+} satisfies Record<keyof typeof en, string>
