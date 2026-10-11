@@ -189,17 +189,126 @@ and workouts reach the hub within minutes; the daily counters within the hour.
 Background delivery does not run on the simulator, and a force-quit stops it until
 the app is opened again.
 
-The hub keeps them in `hub.db` (`health_samples`, one row per sample UUID). Two tools
+The hub keeps them in `hub.db` (`health_samples`, one row per sample UUID). Six tools
 read them:
 
 | Tool | Arguments | Returns |
 | --- | --- | --- |
 | `get_watch` | none | Today and yesterday totals (best single source per day, so iPhone and Watch steps are not added together), latest heart rate, resting heart rate, HRV with a 7-day mean, VO2 max, respiratory rate, blood oxygen, wrist temperature, the last sleep with stages, workouts in the last 48 h, freshness |
-| `list_health_kinds` | none | The Apple Health kinds the hub holds, with sample counts |
-| `get_health_samples` | `kind`, `days` (default 7), `limit` (default 500) | Raw samples of one kind, newest first |
+| `list_health_kinds` | none | The Apple Health kinds the hub holds. For each kind: `samples`, `first_start_unix`, `newest_end_unix`, and the `agg` and `unit` that `get_health_daily` uses |
+| `get_health_daily` | `kinds` (1 to 60 names), then `days` (default 30, maximum 4000) or `start_ymd` and `end_ymd`, `tz_offset_s` | One value per day for each kind, oldest first |
+| `get_health_sleep` | `days` (default 30, maximum 4000) or `start_ymd` and `end_ymd`, `tz_offset_s` | One row per night, oldest first, from the source with the most sleep |
+| `get_workouts` | `days` (default 30, maximum 4000) or `start_unix` and `end_unix`, `limit` (default 200, maximum 2000) | Workouts, newest first, with the heart rate inside each one |
+| `get_health_samples` | `kind`, `days` (default 7) or `start_unix` and `end_unix`, `limit` (default 500, maximum 20000) | Raw samples of one kind, newest first |
 
-`get_status_now` carries the same picture under `watch`, so one call gives the ring
-and the Watch together.
+`get_status_now` carries the same picture as `get_watch` under `watch`, so one call
+gives the ring and the Watch together.
+
+Use `get_health_samples` for the detail inside one or two days. For a longer time,
+use the three aggregate tools. They calculate on the hub, so one call can cover all
+the years the hub holds. They do not need a ring summary.
+
+### Days and time zones
+
+A row belongs to the local day of its start time. `tz_offset_s` is the offset from
+UTC in seconds that sets the day boundary. Without it, the hub uses the offset of
+the last ring summary, or 0 when there is no summary. `start_ymd` and `end_ymd` are
+`YYYY-MM-DD` and the window includes the two days. `days` counts back from today,
+and today is day 1.
+
+### `get_health_daily`
+
+```json
+{ "tz_offset_s": 7200, "start_ymd": "2026-09-12", "end_ymd": "2026-10-11",
+  "kinds": [
+    { "kind": "step_count", "agg": "sum", "unit": "steps",
+      "days": [ { "ymd": "2026-10-10", "value": 8123.0, "n": 412 } ] },
+    { "kind": "heart_rate", "agg": "mean", "unit": "bpm",
+      "days": [ { "ymd": "2026-10-10", "value": 72.1, "min": 48.0, "max": 151.0, "n": 900 } ] }
+  ] }
+```
+
+The kinds come back in the order of the request. A day with no rows is not in
+`days`. A kind with no rows has an empty `days`. Values have a maximum of 3
+decimals. `agg` tells how the hub made the day value:
+
+| `agg` | Day value | `n` | Kinds |
+| --- | --- | --- | --- |
+| `sum` | The total of the source with the largest total that day. Sources are not added together. | Rows of that source | Steps, flights, energy, exercise and stand minutes, distances, daylight, every `dietary_*` kind, `workout` (minutes) |
+| `mean` | The mean of all rows that day, with `min` and `max` | All rows | Heart rate, HRV, respiratory rate, blood oxygen, walking and stair metrics, audio levels, blood pressure, blood glucose, temperatures |
+| `last` | The last row that day, with `min` and `max` | All rows | Resting heart rate, walking heart rate average, VO2 max, body mass, lean body mass, BMI, body fat, height, walking steadiness, six-minute walk distance |
+| `count` | The number of rows from the source with the most rows that day. `stand_hour` counts only the hours with `stood`. | Rows of that source | `stand_hour`, `handwashing_event`, `constipation`, `audio_exposure_event`, `low_heart_rate_event` |
+| `minutes` | The total length of the rows in minutes, from the source with the most | Rows of that source | `mindful_session`, `sleep_analysis` |
+
+`unit` is the unit of the value. The phone stores base units, and the hub converts
+them in this tool only. `get_health_samples` returns the stored value.
+
+| Stored | Returned | Kinds |
+| --- | --- | --- |
+| fraction (0.96) | `%` (96) | `oxygen_saturation`, `body_fat_percentage`, `walking_double_support_percentage`, `walking_asymmetry_percentage`, `apple_walking_steadiness` |
+| g | `mg` | Sodium, potassium, calcium, iron, magnesium, phosphorus, zinc, cholesterol, chloride, vitamin C, vitamin E, niacin, vitamin B6, thiamin, riboflavin, pantothenic acid, copper, manganese, caffeine |
+| g | `µg` | Vitamin A, vitamin D, vitamin K, vitamin B12, folate, biotin, selenium, iodine, chromium, molybdenum |
+| g | `g` | Carbohydrates, protein, fat, fiber, sugar |
+| L | `mL` | `dietary_water` |
+| s | `min` | `time_in_daylight` |
+| count/min | `bpm` or `/min` | Heart rate kinds; `respiratory_rate` |
+| count | `steps`, `flights` | `step_count`, `flights_climbed` |
+| dBASPL | `dB` | Audio levels |
+
+The table of kinds is `src/kinds.rs`. For a kind that is not in the table, the hub
+uses this rule: a name that starts with `dietary_` or `distance_` is a `sum`; a kind
+with values is a `mean`; a kind without values is a `count`. The unit is then the
+stored unit.
+
+The `sleep_analysis` value counts every row, time in bed and time awake included.
+For sleep, use `get_health_sleep`.
+
+### `get_health_sleep`
+
+```json
+{ "tz_offset_s": 7200, "start_ymd": "2026-10-08", "end_ymd": "2026-10-08",
+  "nights": [
+    { "ymd": "2026-10-08", "source": "Apple Watch", "start_unix": 1791407670, "end_unix": 1791439089,
+      "in_bed_min": 523.6, "asleep_min": 514.6, "deep_min": 50.2, "core_min": 344.4, "rem_min": 120.0,
+      "unspecified_min": 0.0, "awake_min": 9.0 }
+  ] }
+```
+
+`ymd` is the day on which the night ends. A sleep row belongs to the night of its
+local start time plus 6 hours. Thus a row that starts at 23:00 and a row that starts
+at 07:00 are in the same night. A row that starts at 18:00 or later is in the night
+of the next day. A nap in the afternoon is in the same row as the night before it.
+
+When more than one source has rows for a night, the source with the most time
+asleep gives the row. A source with only `in_bed` rows gives the row when no source
+has time asleep, and then `asleep_min` is null.
+
+- `start_unix` and `end_unix` are the first start and the last end of the rows of
+  that source.
+- `in_bed_min` is the total of the `in_bed` rows. When the source has no `in_bed`
+  rows, it is the time asleep plus the time awake.
+- `unspecified_min` is the time asleep with no stage.
+- The hub adds the row lengths. If a source wrote rows that overlap, the total is
+  too large. The hub does not correct this.
+
+The ring tool `get_sleep` has more detail, but only for the recent nights of the
+ring. `get_health_sleep` goes back to the first night in Apple Health.
+
+### `get_workouts`
+
+```json
+{ "count": 1, "workouts": [
+    { "activity": "functional_strength_training", "start_unix": 1791361308, "end_unix": 1791364178,
+      "duration_min": 47.8, "kcal": 349.0, "distance_m": null, "hr_avg": 111.2, "hr_max": 149.0,
+      "source": "Apple Watch", "user_entered": false }
+  ] }
+```
+
+The window is on the start of the workout. `hr_avg` and `hr_max` come from the
+`heart_rate` rows that start inside the workout. They are null when there are none.
+`user_entered` is true for a workout that a person typed in. The hub does not
+remove unusual rows: an app can write a workout that is many hours long.
+`workouts_48h` in `get_watch` has the same fields without `hr_avg` and `hr_max`.
 
 ## Push from the Mac
 
@@ -322,6 +431,9 @@ curl -s https://hub.example.com/mcp/<token> -H 'content-type: application/json' 
 | `get_activity` | `days` (default 7) | Steps, active kcal, total kcal, distance per day |
 | `get_watch` | none | The Apple Health picture (see above) |
 | `list_health_kinds` | none | The Apple Health kinds the hub holds |
+| `get_health_daily` | `kinds`, `days` or `start_ymd` and `end_ymd` | One value per day for each Apple Health kind (see above) |
+| `get_health_sleep` | `days` or `start_ymd` and `end_ymd` | Apple Health sleep per night, from every source |
+| `get_workouts` | `days` or `start_unix` and `end_unix`, `limit` | Apple Health workouts with heart rate |
 | `get_health_samples` | `kind`, `days`, `limit` | Raw Apple Health samples of one kind |
 
 Metrics for `get_trends`: `hrv_ms`, `rhr`, `skin_temp`, `efficiency`, `in_bed_h`,

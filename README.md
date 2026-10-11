@@ -21,7 +21,7 @@ your iPhone. Full guide: [open-oura.vercel.app/setup](https://open-oura.vercel.a
   or `oura push` sends (bearer token).
 - `POST /mcp/<token>`: a stateless Streamable HTTP MCP server with the tools
   `get_status_now`, `get_sleep`, `get_trends`, `get_watch`, `list_health_kinds`, `get_health_samples`,
-  `get_activity`.
+  `get_health_daily`, `get_health_sleep`, `get_workouts`, `get_activity`.
 - `GET /export/events`: the ring replica back out, in pages.
 - `GET /health`: liveness; details with the token.
 - `GET /`: the web app: Today, Sleep, Trends,
