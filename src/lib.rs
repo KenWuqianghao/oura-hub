@@ -104,7 +104,7 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
         },
         Tool {
             name: "list_health_kinds",
-            description: "The Apple Health kinds this hub holds: for each kind the number of samples and the end time of the newest one. Use a kind from this list with get_health_samples.",
+            description: "The Apple Health kinds this hub holds: for each kind the number of samples, the start of the oldest one and the end of the newest one, and how get_health_daily folds it into a day (`agg`: sum, mean, last, count, minutes) in which `unit`. Use a kind from this list with get_health_daily or get_health_samples.",
             input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
         },
         Tool {
@@ -151,8 +151,13 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
         }
         if name == "list_health_kinds" {
             let kinds = store_for_handler.health_kinds().map_err(|e| format!("store error: {e}"))?;
-            return Ok(json!({ "count": kinds.len(), "kinds": kinds.iter().map(|(kind, samples, newest)| {
-                json!({ "kind": kind, "samples": samples, "newest_end_unix": *newest as i64 })
+            return Ok(json!({ "count": kinds.len(), "kinds": kinds.iter().map(|k| {
+                let def = kinds::def(&k.kind, k.unit.as_deref(), k.has_values);
+                json!({
+                    "kind": k.kind, "samples": k.samples,
+                    "first_start_unix": k.first_start_unix.map(|t| t as i64), "newest_end_unix": k.newest_end_unix as i64,
+                    "agg": def.agg.as_str(), "unit": def.unit,
+                })
             }).collect::<Vec<_>>() }));
         }
         if name == "get_health_samples" {
@@ -252,8 +257,11 @@ async fn health(State(st): State<Arc<AppState>>, headers: HeaderMap) -> Response
             "max_event_id": ring_ids.0,
             "max_reading_id": ring_ids.1,
         },
-        "health": st.store.health_kinds().unwrap_or_default().iter().map(|(k, n, newest)| {
-            json!({ "kind": k, "count": n, "newest_end_unix": *newest as i64 })
+        "health": st.store.health_kinds().unwrap_or_default().iter().map(|k| {
+            json!({
+                "kind": k.kind, "count": k.samples,
+                "first_start_unix": k.first_start_unix.map(|t| t as i64), "newest_end_unix": k.newest_end_unix as i64,
+            })
         }).collect::<Vec<_>>(),
     }))
     .into_response()
