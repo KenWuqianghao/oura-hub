@@ -4,6 +4,10 @@
   import { onMount } from 'svelte'
   import { Send, Wrench, RotateCcw } from 'lucide-svelte'
   import { getToken } from '../lib/api'
+  import PageHeader from '../components/PageHeader.svelte'
+  import Empty from '../components/Empty.svelte'
+  import Skeleton from '../components/Skeleton.svelte'
+  import { t } from '../lib/i18n.svelte'
 
   type Msg = { role: 'user' | 'assistant'; text: string; tools: { name: string; input: any; result?: string }[]; error?: string; thinking?: string }
   type ProviderInfo = { id: string; title: string; available: boolean; path: string | null; login_hint: string }
@@ -17,13 +21,7 @@
   let error = $state('')
   let box: HTMLDivElement | undefined = $state()
 
-  const quick = [
-    'Plan my day: training, caffeine cutoff, bedtime, one thing to watch.',
-    'How did I sleep last night, and how does it compare with my baseline?',
-    'Compare this week with last week: sleep, HRV, resting heart rate, steps.',
-    'What does my Apple Watch say today, and does it agree with the ring?',
-    'Is there any sign I am getting sick?',
-  ]
+  const quick = $derived([t('ask.q_plan'), t('ask.q_sleep'), t('ask.q_week'), t('ask.q_watch'), t('ask.q_sick')])
   const current = $derived(providers.find(p => p.id === provider))
 
   onMount(async () => {
@@ -77,7 +75,7 @@
           else if (ev.kind === 'thinking') m.thinking = ev.text
           else if (ev.kind === 'tool') m.tools.push({ name: ev.name, input: ev.input })
           else if (ev.kind === 'tool_result') { const last = [...m.tools].reverse().find(t => !t.result); if (last) last.result = ev.text }
-          else if (ev.kind === 'done') { if (ev.session) { sessions = { ...sessions, [provider]: ev.session }; localStorage.setItem('oura-hub.agent-sessions', JSON.stringify(sessions)) } if (ev.text) final = ev.text; if (ev.is_error) m.error = ev.text ?? 'The agent reported an error.' }
+          else if (ev.kind === 'done') { if (ev.session) { sessions = { ...sessions, [provider]: ev.session }; localStorage.setItem('oura-hub.agent-sessions', JSON.stringify(sessions)) } if (ev.text) final = ev.text; if (ev.is_error) m.error = ev.text ?? t('ask.agent_error') }
           else if (ev.kind === 'error') m.error = ev.message
           messages = [...messages]
           box?.scrollTo({ top: box.scrollHeight })
@@ -95,23 +93,20 @@
 </script>
 
 <div class="wrap">
-  <div class="section">
-    <h1>Ask</h1>
-    <p class="sub" style="max-width: 60ch">An agent on the hub, running your own {current?.title ?? 'agent'} subscription, with the health tools attached. It reads the same data these pages show. Answers are not medical advice.</p>
-  </div>
+  <PageHeader title={t('shell.ask')} sub={t('ask.sub', { agent: current?.title ?? t('ask.agent_word') })} />
   <div class="section cols cols-1-3" style="gap: 40px">
     <div>
-      <div class="eyebrow">Agent</div>
+      <div class="eyebrow">{t('ask.agent')}</div>
       <div class="metric-list">
         {#each providers as p}
-          <button class:active={provider === p.id} disabled={!p.available} onclick={() => (provider = p.id)} title={p.available ? p.path ?? '' : `Not installed on the hub. ${p.login_hint}.`}>
-            <span>{p.title}</span><span class="u">{p.available ? (sessions[p.id] ? 'in conversation' : 'ready') : 'not installed'}</span>
+          <button class:active={provider === p.id} disabled={!p.available} onclick={() => (provider = p.id)} title={p.available ? p.path ?? '' : t('ask.not_installed_tip', { hint: p.login_hint })}>
+            <span>{p.title}</span><span class="u">{t(p.available ? (sessions[p.id] ? 'ask.in_conversation' : 'ask.ready') : 'ask.not_installed')}</span>
           </button>
         {/each}
       </div>
-      {#if current && !current.available}<p class="small sub">Install {current.title} on the hub and sign in: {current.login_hint}.</p>{/if}
-      <button class="btn" style="margin-top: 12px" onclick={reset} disabled={busy}><RotateCcw size={14} /> New conversation</button>
-      <div class="eyebrow" style="margin-top: 28px">Try</div>
+      {#if current && !current.available}<p class="small sub">{t('ask.install_hint', { agent: current.title, hint: current.login_hint })}</p>{/if}
+      <button class="btn" style="margin-top: 12px" onclick={reset} disabled={busy}><RotateCcw size={14} /> {t('ask.new_conversation')}</button>
+      <div class="eyebrow" style="margin-top: 28px">{t('ask.try')}</div>
       <div class="metric-list">
         {#each quick as q}<button onclick={() => ask(q)} disabled={busy || !current?.available}><span style="white-space: normal">{q}</span></button>{/each}
       </div>
@@ -119,11 +114,11 @@
     <div style="display:flex; flex-direction: column; min-height: 60vh">
       <div bind:this={box} style="flex: 1; overflow: auto; display:flex; flex-direction: column; gap: 16px">
         {#if !messages.length}
-          <div class="empty"><b>Ask about your sleep, your recovery, or what to do today.</b>The agent calls the hub's tools and answers in your language.</div>
+          <Empty title={t('ask.empty_title')} text={t('ask.empty_text')} />
         {/if}
         {#each messages as m}
           {#if m.role === 'user'}
-            <div style="align-self: flex-end; max-width: 70%; background: var(--surface-2); padding: 10px 14px; border-radius: 12px 12px 4px 12px; white-space: pre-wrap">{m.text}</div>
+            <div style="align-self: flex-end; max-width: 70%; background: var(--fill); padding: 10px 14px; border-radius: 16px 16px 4px 16px; white-space: pre-wrap">{m.text}</div>
           {:else}
             <div style="align-self: flex-start; max-width: 85%; display:flex; flex-direction: column; gap: 8px">
               {#if m.tools.length}
@@ -133,9 +128,9 @@
               {/if}
               {#if m.thinking && !m.text}<div class="small sub">{m.thinking}</div>{/if}
               {#if m.text}
-                <div style="border-left: 2px solid var(--signal); padding: 4px 14px; line-height: 1.55; white-space: pre-wrap; font-size: 16px">{m.text}</div>
+                <div style="border-left: 2px solid var(--ring); padding: 4px 14px; line-height: 1.55; white-space: pre-wrap; font-size: 16px">{m.text}</div>
               {:else if !m.error}
-                <div class="skeleton" style="height: 14px; width: 220px"></div>
+                <Skeleton height={14} width="220px" />
               {/if}
               {#if m.error}<div class="error">{m.error}</div>{/if}
             </div>
@@ -143,8 +138,8 @@
         {/each}
       </div>
       <form style="display:flex; gap: 10px; margin-top: 16px" onsubmit={e => { e.preventDefault(); ask(input) }}>
-        <input class="input" placeholder={current?.available ? `Ask ${current.title}…` : 'No agent is installed on the hub'} bind:value={input} disabled={busy || !current?.available} />
-        <button class="btn primary" style="padding: 0 16px" disabled={busy || !input.trim() || !current?.available} aria-label="Send"><Send size={16} /></button>
+        <input class="input" placeholder={current?.available ? t('ask.placeholder', { agent: current.title }) : t('ask.no_agent')} bind:value={input} disabled={busy || !current?.available} />
+        <button class="btn primary" style="padding: 0 16px" disabled={busy || !input.trim() || !current?.available} aria-label={t('ask.send')} title={t('ask.send')}><Send size={16} /></button>
       </form>
       {#if error}<div class="error" style="margin-top: 10px">{error}</div>{/if}
     </div>

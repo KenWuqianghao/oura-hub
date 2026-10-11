@@ -1,6 +1,8 @@
 // Page state: the token, the latest summary, the Apple Health picture, load status.
 import { api, getToken, setToken, type Summary, type Watch, type HealthInfo, type HealthSample, ApiError } from './api'
 import { dayStartMs, todayYmd } from './fmt'
+import { t } from './i18n.svelte'
+import { refreshHealth } from './health.svelte'
 
 export const hub = $state({
   token: getToken(),
@@ -28,7 +30,7 @@ export async function login(token: string): Promise<boolean> {
     return true
   } catch (e: any) {
     hub.authed = false
-    hub.error = e instanceof ApiError && e.status === 401 ? 'That token was not accepted.' : `Could not reach the hub: ${e.message}`
+    hub.error = e instanceof ApiError && e.status === 401 ? t('login.bad_token') : t('login.unreachable', { message: e.message })
     return false
   }
 }
@@ -62,6 +64,7 @@ export async function check() {
 export async function load() {
   hub.loading = true
   hub.error = ''
+  if (hub.info) refreshHealth()
   try {
     const [summary, watch, info] = await Promise.all([
       api.summary().catch(e => { if (e instanceof ApiError && e.status === 404) return null; throw e }),
@@ -99,7 +102,7 @@ export async function selectDay(day: string) {
     // a gap over 20 minutes breaks the line
     const withGaps: [number, number][] = []
     for (let i = 0; i < hr.length; i++) { if (i && hr[i][0] - hr[i - 1][0] > 20 * 60_000) withGaps.push([hr[i - 1][0] + 60_000, NaN]); withGaps.push(hr[i]) }
-    const workouts = wRes.samples.filter(w => w.end_unix * 1000 >= start && w.start_unix * 1000 <= end).map(w => ({ start: w.start_unix * 1000, end: w.end_unix * 1000, label: (w.category ?? 'workout').replace(/_/g, ' '), source: w.source_name ?? 'Apple Health' }))
+    const workouts = wRes.samples.filter(w => w.end_unix * 1000 >= start && w.start_unix * 1000 <= end).map(w => ({ start: w.start_unix * 1000, end: w.end_unix * 1000, label: w.category ?? 'workout', source: w.source_name ?? 'Apple Health' }))
     if (hub.day === day) hub.dayData = { day, hr: withGaps, workouts }
   } finally {
     if (hub.day === day) hub.dayLoading = false

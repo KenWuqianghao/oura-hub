@@ -1,47 +1,72 @@
-# Svelte + TS + Vite
+# The hub dashboard
 
-This template should help get you started developing with Svelte and TypeScript in Vite.
+Vite, Svelte 5 (runes), TypeScript, and ECharts. The hub serves `dist/`.
 
-## Recommended IDE Setup
-
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
-
-## Need an official Svelte framework?
-
-Check out [SvelteKit](https://github.com/sveltejs/kit#readme), which is also powered by Vite. Deploy anywhere with its serverless-first approach and adapt to various platforms, with out of the box support for TypeScript, SCSS, and Less, and easily-added support for mdsvex, GraphQL, PostCSS, Tailwind CSS, and more.
-
-## Technical considerations
-
-**Why use this over SvelteKit?**
-
-- It brings its own routing solution which might not be preferable for some users.
-- It is first and foremost a framework that just happens to use Vite under the hood, not a Vite app.
-
-This template contains as little as possible to get started with Vite + TypeScript + Svelte, while taking into account the developer experience with regards to HMR and intellisense. It demonstrates capabilities on par with the other `create-vite` templates and is a good starting point for beginners dipping their toes into a Vite + Svelte project.
-
-Should you later need the extended capabilities and extensibility provided by SvelteKit, the template has been structured similarly to SvelteKit so that it is easy to migrate.
-
-**Why `global.d.ts` instead of `compilerOptions.types` inside `jsconfig.json` or `tsconfig.json`?**
-
-Setting `compilerOptions.types` shuts out all other types not explicitly listed in the configuration. Using triple-slash references keeps the default TypeScript setting of accepting type information from the entire workspace, while also adding `svelte` and `vite/client` type information.
-
-**Why include `.vscode/extensions.json`?**
-
-Other templates indirectly recommend extensions via the README, but this file allows VS Code to prompt the user to install the recommended extension upon opening the project.
-
-**Why enable `allowJs` in the TS template?**
-
-While `allowJs: false` would indeed prevent the use of `.js` files in the project, it does not prevent the use of JavaScript syntax in `.svelte` files. In addition, it would force `checkJs: false`, bringing the worst of both worlds: not being able to guarantee the entire codebase is TypeScript, and also having worse typechecking for the existing JavaScript. In addition, there are valid use cases in which a mixed codebase may be relevant.
-
-**Why is HMR not preserving my local component state?**
-
-HMR state preservation comes with a number of gotchas! It has been disabled by default in both `svelte-hmr` and `@sveltejs/vite-plugin-svelte` due to its often surprising behavior. You can read the details [here](https://github.com/rixo/svelte-hmr#svelte-hmr).
-
-If you have state that's important to retain within a component, consider creating an external store which would not be replaced by HMR.
-
-```ts
-// store.ts
-// An extremely simple external store
-import { writable } from 'svelte/store'
-export default writable(0)
+```bash
+npm run check    # svelte-check and tsc: zero errors
+npm run build    # writes dist/
+VITE_HUB_URL=http://127.0.0.1:8787 npm run dev
 ```
+
+## Design rules
+
+- Text and numbers carry the page. Use label and value tables (`KV`), dense tables
+  (`table.t`), and one sentence in plain words. Do not use a grid of cards, tiles
+  with large numbers, score rings, or icons for decoration.
+- A panel (`.panel`) is for a chart only.
+- One colour for each data family: `--c-activity`, `--c-heart`, `--c-sleep`,
+  `--c-nutrition`, `--c-body`, `--c-mobility`, `--c-hearing`, `--c-respiratory`,
+  `--c-mindfulness`, `--c-other`. `--c-x` paints marks. `--c-x-ink` is for text.
+  `--ring` and `--watch` tell the two sources apart on a shared chart.
+- `--good`, `--warn`, and `--alert` show a status only, always with a label.
+- Motion uses `--dur-fast`, `--dur`, `--dur-slow`, and `--ease`. All motion stops
+  under `prefers-reduced-motion`. If an animation makes a page slower to read,
+  remove it.
+
+## Where things are
+
+| Path | Contents |
+| --- | --- |
+| `src/app.css` | Tokens and the shared classes |
+| `src/App.svelte` | The top bar and the routes (`#/<tab>/<param>`) |
+| `src/pages/` | One file for each page |
+| `src/components/` | Shared pieces: `PageHeader`, `Section`, `KV`, `Seg`, `Num`, `RangePicker`, `MetricChart`, `MetricRow`, `Spark`, `Empty`, `ErrorNote`, `Skeleton` |
+| `src/i18n/<area>.ts` | The words of one area, in English and in Chinese |
+| `src/lib/i18n.svelte.ts` | `t(key, vars)`, the locale, `intlTag()` |
+| `src/lib/fmt.ts` | Dates, numbers, and durations through `Intl` |
+| `src/lib/kinds.ts` | The catalogue of Apple Health kinds: group, colour, decimals, chart type |
+| `src/lib/health.svelte.ts` | The cached loader for the Apple Health tools |
+| `src/lib/range.ts` | Time ranges and the bucket rule (pure) |
+| `src/lib/charts.ts` | The ECharts setup: `base()`, the `chart` action, tooltips |
+
+Open `#/kit` to see the shared pieces with real data.
+
+## How to add text
+
+1. Add a key to `en` in `src/i18n/<area>.ts`.
+2. Add the same key to `zh`. The type check fails until you do.
+3. Call `t('<area>.<key>')`. Put a variable in the text as `{name}` and give it as
+   `t(key, { name })`.
+
+Keep units, product names, and code literals as they are. Do not write a date, a
+number, or a duration by hand: use `src/lib/fmt.ts`.
+
+## How to show a kind
+
+```svelte
+<script lang="ts">
+  import RangePicker from '../components/RangePicker.svelte'
+  import MetricChart from '../components/MetricChart.svelte'
+  import MetricRow from '../components/MetricRow.svelte'
+  import type { RangeId } from '../lib/range'
+  let range = $state<RangeId>('M')
+</script>
+
+<RangePicker bind:value={range} />
+<MetricChart kind="step_count" {range} />
+<MetricRow kind="flights_climbed" {range} />
+```
+
+Components that mount together send one request for their light kinds. A kind with
+very many rows (`heart_rate`, `active_energy`, `basal_energy`, `physical_effort`,
+`step_count`) goes in a request of its own, so it does not hold back the others.

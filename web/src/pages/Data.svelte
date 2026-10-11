@@ -1,55 +1,63 @@
 <script lang="ts">
+  import PageHeader from '../components/PageHeader.svelte'
+  import Section from '../components/Section.svelte'
+  import KV from '../components/KV.svelte'
+  import Empty from '../components/Empty.svelte'
   import { hub, logout } from '../lib/store.svelte'
+  import { api } from '../lib/api'
+  import { t } from '../lib/i18n.svelte'
+  import { kindTitle } from '../lib/kinds'
   import * as F from '../lib/fmt'
   const info = $derived(hub.info)
   const s = $derived(hub.summary)
-  const total = $derived((info?.health ?? []).reduce((a, k) => a + k.count, 0))
+  const kinds = $derived([...(info?.health ?? [])].sort((a, b) => b.count - a.count))
+  const total = $derived(kinds.reduce((a, k) => a + k.count, 0))
+  let tools = $state<string[]>([])
+  $effect(() => { api.toolNames().then(names => { tools = names }, () => { tools = [] }) })
 </script>
 
 <div class="wrap">
-  <div class="section"><h1>Data</h1><p class="sub">What the hub holds, and how fresh it is.</p></div>
+  <PageHeader title={t('shell.data')} sub={t('data.sub')} />
   <div class="section cols cols-3">
     <div>
-      <div class="eyebrow">Summary snapshots</div>
-      <div class="kv">
-        <div class="k">Snapshots kept</div><div class="v">{info?.snapshots ?? '—'}</div>
-        <div class="k">Latest received</div><div class="v">{hub.receivedAt ? `${F.dateTime(hub.receivedAt)} · ${F.ago(hub.receivedAt)}` : '—'}</div>
-        <div class="k">Built by</div><div class="v">{s?.pushed_by ? `${s.pushed_by.client} ${s.pushed_by.version}` : '—'}</div>
-        <div class="k">Nights in summary</div><div class="v">{s?.nights.length ?? '—'}</div>
-        <div class="k">Activity days</div><div class="v">{Object.keys(s?.activity_daily ?? {}).length}</div>
-      </div>
-      <p class="small sub">The phone builds the summary after every ring sync and pushes it when its content changed. The hub keeps the last 500.</p>
+      <div class="eyebrow">{t('data.snapshots')}</div>
+      <KV rows={[
+        [t('data.snapshots_kept'), info?.snapshots != null ? F.num(info.snapshots) : null],
+        [t('data.latest_received'), hub.receivedAt ? `${F.dateTime(hub.receivedAt)} · ${F.ago(hub.receivedAt)}` : null],
+        [t('data.built_by'), s?.pushed_by ? `${s.pushed_by.client} ${s.pushed_by.version}` : null],
+        [t('data.nights_in_summary'), s?.nights.length],
+        [t('data.activity_days'), s ? Object.keys(s.activity_daily ?? {}).length : null],
+      ]} />
+      <p class="small sub">{t('data.snapshots_note')}</p>
     </div>
     <div>
-      <div class="eyebrow">Ring replica</div>
-      <div class="kv">
-        <div class="k">Serial</div><div class="v">{info?.ring?.serials.join(', ') || '—'}</div>
-        <div class="k">Raw events</div><div class="v">{(info?.ring?.max_event_id ?? 0).toLocaleString()}</div>
-        <div class="k">Readings</div><div class="v">{(info?.ring?.max_reading_id ?? 0).toLocaleString()}</div>
-      </div>
-      <p class="small sub">Every raw ring event the phone drained, in the same SQLite schema the desktop client uses. A full backup: <span class="num">oura dashboard --db oura.db</span> runs on it.</p>
+      <div class="eyebrow">{t('data.replica')}</div>
+      <KV rows={[
+        [t('data.serial'), info?.ring?.serials.join(', ') || null],
+        [t('data.raw_events'), F.num(info?.ring?.max_event_id ?? 0)],
+        [t('data.readings'), F.num(info?.ring?.max_reading_id ?? 0)],
+      ]} />
+      <p class="small sub">{@html t('data.replica_note')}</p>
     </div>
     <div>
-      <div class="eyebrow">This hub</div>
-      <div class="kv">
-        <div class="k">Address</div><div class="v">{location.host}</div>
-        <div class="k">MCP</div><div class="v num small">{location.origin}/mcp/&lt;token&gt;</div>
-        <div class="k">Tools</div><div class="v small">get_status_now · get_sleep · get_trends · get_watch · get_health_samples · get_activity</div>
-      </div>
-      <p class="small sub">An agent with the token reads the same data these pages show.</p>
-      <button class="btn" onclick={logout}>Sign out of this browser</button>
+      <div class="eyebrow">{t('data.this_hub')}</div>
+      <KV rows={[[t('data.address'), location.host]]}>
+        <dt class="k">MCP</dt><dd class="v code">{location.origin}/mcp/&lt;token&gt;</dd>
+        <dt class="k">{t('data.tools')}</dt><dd class="v code">{tools.length ? tools.join(' · ') : '—'}</dd>
+      </KV>
+      <p class="small sub">{t('data.hub_note')}</p>
+      <button class="btn" onclick={logout}>{t('data.sign_out')}</button>
     </div>
   </div>
-  <div class="section">
-    <div class="eyebrow">Apple Health samples <span class="aside">{total ? `${total.toLocaleString()} samples` : ''}</span></div>
-    {#if info?.health?.length}
-      <table class="t" style="max-width: 720px">
-        <thead><tr><th>Kind</th><th class="r">Samples</th><th class="r">Newest</th></tr></thead>
-        <tbody>{#each info.health as k}<tr><td class="text">{k.kind.replace(/_/g, ' ')}</td><td class="r">{k.count.toLocaleString()}</td><td class="r">{F.dateTime(k.newest_end_unix)} · {F.ago(k.newest_end_unix)}</td></tr>{/each}</tbody>
-      </table>
-      <p class="small sub">Pushed by the phone from HealthKit with anchored queries; the app's own export is excluded. The Watch writes heart rate, HRV, sleep, workouts, and the daily counters; other apps' samples arrive too, with their source name.</p>
+  <Section title={t('data.samples_title')} aside={total ? t('data.samples_n', { n: F.num(total) }) : ''}>
+    {#if kinds.length}
+      <div class="table-scroll" style="max-width: 880px"><table class="t">
+        <thead><tr><th>{t('data.kind')}</th><th class="r">{t('data.samples')}</th><th class="r">{t('data.first')}</th><th class="r">{t('data.newest')}</th></tr></thead>
+        <tbody>{#each kinds as k (k.kind)}<tr><td class="text"><a href="#/trends/{k.kind}" style="color: inherit">{kindTitle(k.kind)}</a></td><td class="r">{F.num(k.count)}</td><td class="r">{k.first_start_unix != null ? F.fullDateOf(k.first_start_unix * 1000) : '—'}</td><td class="r">{F.dateTime(k.newest_end_unix)} · {F.ago(k.newest_end_unix)}</td></tr>{/each}</tbody>
+      </table></div>
+      <p class="small sub" style="max-width: 880px">{t('data.samples_note')}</p>
     {:else}
-      <div class="empty"><b>Nothing pushed yet.</b>Turn on Apple Health in the app's Health hub settings.</div>
+      <Empty title={t('data.none_title')} text={t('data.none_text')} />
     {/if}
-  </div>
+  </Section>
 </div>

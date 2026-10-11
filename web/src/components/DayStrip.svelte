@@ -3,9 +3,11 @@
   // Three stacked plots share the x axis and the crosshair: sleep stages, heart
   // rate, and movement with workouts. Everything the ring and the watch know about
   // the day, in the order it happened.
-  import { chart, base, tokens, xTime, yValue, fmtTime } from '../lib/charts'
+  import { chart, base, tokens, xTime, yValue, axisLabel, tipHead, tipRow } from '../lib/charts'
   import type { Night } from '../lib/api'
-  import { hmOnDay, stageName } from '../lib/fmt'
+  import { hmOnDay, stageName, clockOf, dayLabel, num } from '../lib/fmt'
+  import { activityTitle } from '../lib/kinds'
+  import { t as tr } from '../lib/i18n.svelte'
 
   let { day, dayStart, nights = [], hr = [], profile = [], prevProfile = [], workouts = [] }:
     { day: string; dayStart: number; nights?: Night[]; hr?: [number, number][]; profile?: number[]; prevProfile?: number[]; workouts?: { start: number; end: number; label: string; source: string }[] } = $props()
@@ -52,7 +54,7 @@
       { top: 140, height: 120 },
       { top: 292, height: 70 },
     ]
-    const xa = (i: number, show: boolean) => ({ ...xTime(winStart, winEnd), gridIndex: i, show, axisLabel: { color: t.ash, fontFamily: t.mono, fontSize: 11, formatter: (v: number) => fmtTime(v), hideOverlap: true }, splitLine: { show: true, lineStyle: { color: t.rule, width: 1, type: 'solid' as const } }, splitNumber: 10 })
+    const xa = (i: number, show: boolean) => ({ ...xTime(winStart, winEnd), gridIndex: i, show, axisLabel: { ...axisLabel(), formatter: (v: number) => clockOf(v), hideOverlap: true }, splitLine: { show: true, lineStyle: { color: t.rule, width: 1, type: 'solid' as const } }, splitNumber: 10 })
     return {
       ...base(),
       grid: grids.map(g => ({ left: 56, right: 24, ...g })),
@@ -63,27 +65,27 @@
           const p = Array.isArray(params) ? params : [params]
           if (!p.length) return ''
           const x = p[0].axisValue as number
-          const lines = [`<div style="color:${t.ash};font-family:${t.mono};font-size:11px;margin-bottom:4px">${fmtTime(x)}</div>`]
+          const lines = [tipHead(clockOf(x))]
           const run = stageRuns.find(r => x >= r[0] && x < r[1])
-          if (run) lines.push(`<div><b>${run[2] ? stageName(run[2]) : 'In bed'}</b> <span style="color:${t.ash}">${run[2] ? 'sleep' : 'no stages yet'}</span></div>`)
+          if (run) lines.push(tipRow(run[2] ? stageName(run[2]) : tr('charts.in_bed'), run[2] ? tr('charts.asleep_word') : tr('charts.no_stages')))
           for (const item of p) {
-            if (item.seriesName === 'Heart rate' && item.value) lines.push(`<div><b>${Math.round(item.value[1])}</b> <span style="color:${t.ash}">bpm</span></div>`)
-            if (item.seriesName === 'Movement' && item.value) lines.push(`<div><b>${(item.value[1] as number).toFixed(1)}</b> <span style="color:${t.ash}">MET above rest</span></div>`)
+            if (item.seriesId === 'hr' && item.value) lines.push(tipRow(num(item.value[1]), 'bpm'))
+            if (item.seriesId === 'move' && item.value) lines.push(tipRow(num(item.value[1], 1), tr('charts.met_above_rest')))
           }
           const w = workouts.find(w => x >= w.start && x <= w.end)
-          if (w) lines.push(`<div><b>${w.label}</b> <span style="color:${t.ash}">${w.source}</span></div>`)
+          if (w) lines.push(tipRow(activityTitle(w.label), w.source === 'ring' ? tr('today.ring') : w.source))
           return lines.join('')
         },
       },
       xAxis: [xa(0, false), xa(1, false), xa(2, true)],
       yAxis: [
         { type: 'value', gridIndex: 0, min: 0, max: 4.4, inverse: true, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false }, axisLabel: { show: false } },
-        { ...yValue(), gridIndex: 1, splitNumber: 3, axisLabel: { color: t.ash, fontFamily: t.mono, fontSize: 11, formatter: (v: number) => `${v}` } },
-        { ...yValue(), gridIndex: 2, min: 0, splitNumber: 2, axisLabel: { color: t.ash, fontFamily: t.mono, fontSize: 11 } },
+        { ...yValue(), gridIndex: 1, splitNumber: 3 },
+        { ...yValue(), gridIndex: 2, min: 0, splitNumber: 2 },
       ],
       series: [
         {
-          name: 'Sleep', type: 'custom', xAxisIndex: 0, yAxisIndex: 0, silent: true,
+          id: 'sleep', type: 'custom', xAxisIndex: 0, yAxisIndex: 0, silent: true,
           data: stageRuns,
           renderItem: (_p: any, api: any) => {
             const s = api.value(2) as number
@@ -94,18 +96,19 @@
           },
         },
         {
-          name: 'Heart rate', type: 'line', xAxisIndex: 1, yAxisIndex: 1, data: hr, showSymbol: false, symbolSize: 8,
-          lineStyle: { width: 1.5, color: t.slate }, itemStyle: { color: t.slate }, sampling: 'lttb', connectNulls: false,
-          markArea: sleepWindows.length ? { silent: true, itemStyle: { color: t.band }, data: sleepWindows.map(([a, b]) => [{ xAxis: a }, { xAxis: b }]) } : undefined,
+          id: 'hr', type: 'line', xAxisIndex: 1, yAxisIndex: 1, data: hr, showSymbol: false, symbolSize: 8,
+          lineStyle: { width: 1.5, color: t.heart }, itemStyle: { color: t.heart }, sampling: 'lttb', connectNulls: false,
+          markArea: { silent: true, itemStyle: { color: t.band }, data: sleepWindows.map(([a, b]) => [{ xAxis: a }, { xAxis: b }]) },
         },
         {
-          name: 'Movement', type: 'line', xAxisIndex: 2, yAxisIndex: 2, data: movement, showSymbol: false, smooth: 0.3,
-          lineStyle: { width: 1.5, color: t.ember }, itemStyle: { color: t.ember }, areaStyle: { color: t.ember, opacity: 0.12 },
-          markArea: workouts.length ? {
-            silent: true, itemStyle: { color: t.ember, opacity: 0.18 },
+          id: 'move', type: 'line', xAxisIndex: 2, yAxisIndex: 2, data: movement, showSymbol: false, smooth: 0.3,
+          lineStyle: { width: 1.5, color: t.activity }, itemStyle: { color: t.activity }, areaStyle: { color: t.activity, opacity: 0.12 },
+          markArea: {
+            silent: true, itemStyle: { color: t.activity, opacity: 0.18 },
             label: { show: true, position: 'insideTop', color: t.ink, fontSize: 11, fontFamily: t.font },
-            data: workouts.map(w => [{ xAxis: w.start, name: w.label }, { xAxis: w.end }]),
-          } : undefined,
+            // workouts that follow each other closely: every second label sits one line lower
+            data: workouts.map((w, i) => [{ xAxis: w.start, name: activityTitle(w.label), label: { offset: [0, (i % 2) * 13] } }, { xAxis: w.end }]),
+          },
         },
       ],
     }
@@ -114,26 +117,26 @@
 
 <div class="panel">
   <div class="panel-head">
-    <h2 style="margin:0">The day, hour by hour</h2>
-    <span class="sub small">from the evening before · {day}</span>
+    <h2 style="margin:0">{tr('charts.day_title')}</h2>
+    <span class="sub small">{tr('charts.day_sub', { day: dayLabel(day) })}</span>
     <span class="spacer" style="flex:1"></span>
     <span class="legend">
-      <span><span class="sw" style="background:var(--deep)"></span>Deep</span>
-      <span><span class="sw" style="background:var(--core)"></span>Core</span>
-      <span><span class="sw" style="background:var(--rem)"></span>REM</span>
-      <span><span class="sw" style="background:var(--awake)"></span>Awake</span>
-      <span><span class="ln" style="background:var(--slate)"></span>Heart rate (watch)</span>
-      <span><span class="ln" style="background:var(--ember)"></span>Movement (ring)</span>
+      <span><span class="sw" style="background:var(--deep)"></span>{tr('common.deep')}</span>
+      <span><span class="sw" style="background:var(--core)"></span>{tr('common.core')}</span>
+      <span><span class="sw" style="background:var(--rem)"></span>{tr('common.rem')}</span>
+      <span><span class="sw" style="background:var(--awake)"></span>{tr('common.awake')}</span>
+      <span><span class="ln" style="background:var(--c-heart)"></span>{tr('charts.hr_watch')}</span>
+      <span><span class="ln" style="background:var(--c-activity)"></span>{tr('charts.movement_ring')}</span>
     </span>
   </div>
   <div class="panel-body">
     <div style="position:relative">
-      <div style="position:absolute; left: 18px; top: 4px; font-size: 11px; color: var(--mute)">Sleep</div>
+      <div style="position:absolute; left: 18px; top: 4px; font-size: 11px; color: var(--mute)">{tr('charts.lane_sleep')}</div>
       <div style="position:absolute; left: 18px; top: 116px; font-size: 11px; color: var(--mute)">bpm</div>
       <div style="position:absolute; left: 18px; top: 268px; font-size: 11px; color: var(--mute)">MET</div>
-      {#if !stageRuns.length}<div class="small muted" style="position:absolute; left: 50%; top: 58px; transform: translateX(-50%)">No night for this day yet</div>{/if}
-      {#if !hr.length}<div class="small muted" style="position:absolute; left: 50%; top: 190px; transform: translateX(-50%)">No watch heart rate for this day</div>{/if}
-      {#if !movement.length}<div class="small muted" style="position:absolute; left: 50%; top: 318px; transform: translateX(-50%)">No ring movement for this day</div>{/if}
+      {#if !stageRuns.length}<div class="small muted" style="position:absolute; left: 50%; top: 58px; transform: translateX(-50%)">{tr('charts.no_night')}</div>{/if}
+      {#if !hr.length}<div class="small muted" style="position:absolute; left: 50%; top: 190px; transform: translateX(-50%)">{tr('charts.no_hr')}</div>{/if}
+      {#if !movement.length}<div class="small muted" style="position:absolute; left: 50%; top: 318px; transform: translateX(-50%)">{tr('charts.no_movement')}</div>{/if}
       <div use:chart={{ option }} style="height: 392px; width: 100%"></div>
     </div>
   </div>
