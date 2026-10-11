@@ -7,7 +7,7 @@
   import Skeleton from '../Skeleton.svelte'
   import type { DailySeries } from '../../lib/api'
   import { bucketize, type RangeId, windowOf } from '../../lib/range'
-  import { kindInfo, kindTitle, unitLabel } from '../../lib/kinds'
+  import { kindHref, kindInfo, kindTitle, unitLabel } from '../../lib/kinds'
   import { kindFacts } from '../../lib/body'
   import { t, intlTag } from '../../lib/i18n.svelte'
   import * as F from '../../lib/fmt'
@@ -41,7 +41,7 @@
       <tbody>
         {#each rows as r (r.kind)}
           <tr>
-            <td class="name">{kindTitle(r.kind)}</td>
+            <td class="name"><a href={kindHref(r.kind)}>{kindTitle(r.kind)}</a></td>
             <td class="spark"><Spark values={r.marks} type={r.info.chart === 'bar' ? 'bar' : 'line'} color="var({r.info.color})" width={88} height={22} /></td>
             <td>
               {#if r.value == null}<span class="muted">{t('body.none_short')}</span>
@@ -64,6 +64,7 @@
 
 <style>
   .name { font-weight: 500; }
+  .name a { color: inherit; }
   .spark { width: 88px; padding-right: 0; }
   .u { color: var(--ash); font-size: 13px; }
   .missing { margin: 10px 0 0; }

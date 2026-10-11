@@ -6,8 +6,7 @@
   import { hub, logout } from '../lib/store.svelte'
   import { api } from '../lib/api'
   import { t } from '../lib/i18n.svelte'
-  import { kindTitle, kindInfo, groupTitle } from '../lib/kinds'
-  import { kindHref } from '../lib/trends'
+  import { kindTitle, kindInfo, groupTitle, kindHref } from '../lib/kinds'
   import * as F from '../lib/fmt'
   const info = $derived(hub.info)
   const s = $derived(hub.summary)

@@ -6,7 +6,7 @@
   import Num from './Num.svelte'
   import Spark from './Spark.svelte'
   import { daily, noDataText } from '../lib/health.svelte'
-  import { kindInfo, kindTitle, unitLabel } from '../lib/kinds'
+  import { kindHref, kindInfo, kindTitle, unitLabel } from '../lib/kinds'
   import { bucketize, windowOf, type RangeId } from '../lib/range'
   import { headline, type StatChoice } from '../lib/metric'
   import { t } from '../lib/i18n.svelte'
@@ -21,7 +21,7 @@
   const values = $derived(bucketize(inWindow, data?.agg ?? 'mean', win.start, win.end).points.map(p => p.value))
 </script>
 
-<a class="metric-row" href={href ?? `#/trends/${kind}`} aria-busy={res.loading}>
+<a class="metric-row" href={href ?? kindHref(kind)} aria-busy={res.loading}>
   <span class="title">{kindTitle(kind)}</span>
   <span class="what">{res.error ? res.error : data && !inWindow.length ? noDataText(undefined) : t(head.label)}</span>
   <Spark {values} type={info.chart === 'bar' ? 'bar' : 'line'} color="var({info.color})" />

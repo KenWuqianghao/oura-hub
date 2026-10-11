@@ -4,7 +4,7 @@
   import Num from '../Num.svelte'
   import ErrorNote from '../ErrorNote.svelte'
   import { DAY_KINDS, type DayHealth, type DayKind } from '../../lib/todayHealth'
-  import { activityTitle, kindInfo, kindTitle } from '../../lib/kinds'
+  import { activityTitle, kindHref, kindInfo, kindTitle } from '../../lib/kinds'
   import { t } from '../../lib/i18n.svelte'
   import * as F from '../../lib/fmt'
 
@@ -34,7 +34,7 @@
           {@const unit = ROW[kind].unit()}
           {@const decimals = kindInfo(kind).decimals}
           <tr>
-            <td class="text"><a href="#/trends/{kind}">{ROW[kind].label()}</a></td>
+            <td class="text"><a href={kindHref(kind)}>{ROW[kind].label()}</a></td>
             {#each [data?.totals[kind], data?.before[kind]] as v}
               <td class="r"><Num value={v} {decimals} />{v != null && unit ? ` ${unit}` : ''}</td>
             {/each}

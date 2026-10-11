@@ -1,19 +1,13 @@
 // The Trends page, pure: what an id in the address stands for, the list on the
 // left, the range a kind opens on, and the comparison with the period before.
 import type { DayPoint, HealthKind } from './api'
-import { GROUPS, KINDS, kindInfo, kindTitle, groupTitle, unitLabel, type Group, type ColorToken } from './kinds'
+import { GROUPS, KINDS, KIND_SECTION, kindHref, kindInfo, kindTitle, groupTitle, unitLabel, type Group, type ColorToken } from './kinds'
 import type { RangeId } from './range'
 import { RING, ringMetric, type RingMetric } from './trendsRing'
 import { t } from './i18n.svelte'
 import * as F from './fmt'
 
-/** Kinds that have a section of their own on another page: the list links there in place of a chart here. */
-const ELSEWHERE: Record<string, { href: string; label: 'trends.go_sleep' | 'trends.go_workouts' }> = {
-  sleep_analysis: { href: '#/sleep/history', label: 'trends.go_sleep' },
-  workout: { href: '#/activity/workouts', label: 'trends.go_workouts' },
-}
-/** Where the link to a kind goes: its Trends page, or the section that shows it better. */
-export const kindHref = (kind: string) => ELSEWHERE[kind]?.href ?? `#/trends/${kind}`
+const ELSEWHERE_LABEL: Record<string, 'trends.go_sleep' | 'trends.go_workouts'> = { sleep_analysis: 'trends.go_sleep', workout: 'trends.go_workouts' }
 
 export type Selection =
   | { type: 'ring'; metric: RingMetric }
@@ -26,7 +20,7 @@ export type Selection =
 export function select(id: string, kinds: HealthKind[] | null): Selection {
   const metric = ringMetric(id)
   if (metric) return { type: 'ring', metric }
-  if (ELSEWHERE[id]) return { type: 'elsewhere', kind: id, ...ELSEWHERE[id] }
+  if (KIND_SECTION[id]) return { type: 'elsewhere', kind: id, href: KIND_SECTION[id], label: ELSEWHERE_LABEL[id] }
   if (!kinds) return { type: 'pending' }
   const meta = kinds.find(k => k.kind === id)
   return meta ? { type: 'health', kind: id, meta } : { type: 'unknown', id }
@@ -50,7 +44,7 @@ export function listGroups(kinds: HealthKind[], query: string): ListGroup[] {
       id: group, title: groupTitle(group), color: `--c-${group}`,
       items: kinds.filter(k => k.samples > 0 && kindInfo(k.kind).group === group)
         .sort((a, b) => rank(a.kind) - rank(b.kind) || (a.kind < b.kind ? -1 : 1))
-        .map(k => ({ id: k.kind, title: kindTitle(k.kind), unit: unitLabel(kindInfo(k.kind).display?.unit ?? k.unit), href: kindHref(k.kind), elsewhere: k.kind in ELSEWHERE })),
+        .map(k => ({ id: k.kind, title: kindTitle(k.kind), unit: unitLabel(kindInfo(k.kind).display?.unit ?? k.unit), href: kindHref(k.kind), elsewhere: k.kind in KIND_SECTION })),
     })
   }
   return groups.map(g => ({ ...g, items: g.items.filter(keep) })).filter(g => g.items.length)

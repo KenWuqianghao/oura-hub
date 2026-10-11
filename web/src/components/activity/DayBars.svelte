@@ -5,7 +5,7 @@
   import Skeleton from '../Skeleton.svelte'
   import { chart } from '../../lib/charts'
   import { daily, noDataText } from '../../lib/health.svelte'
-  import { kindInfo, kindTitle, unitLabel } from '../../lib/kinds'
+  import { kindHref, kindInfo, kindTitle, unitLabel } from '../../lib/kinds'
   import { bucketize, stats, windowOf, type RangeId } from '../../lib/range'
   import { dayBarsOption } from '../../lib/activity-charts'
   import { t } from '../../lib/i18n.svelte'
@@ -24,7 +24,7 @@
 
 <figure class="day-bars" aria-busy={res.loading}>
   <figcaption>
-    <a class="name" href="#/trends/{kind}">{kindTitle(kind)}</a>
+    <a class="name" href={kindHref(kind)}>{kindTitle(kind)}</a>
     <div class="value"><Num value={s.mean} decimals={info.decimals} />{#if unit}<small>{unit}</small>{/if}</div>
     <div class="label">{t('common.stat_daily_average')}</div>
     <div class="label">{#if s.total != null}{t('activity.total_n', { n: F.num(s.total, info.decimals), unit })}{/if}</div>
