@@ -40,7 +40,7 @@ export const api = {
 }
 
 /** The browser's offset from UTC in seconds. It sets where a day starts and ends on the hub. */
-export const tzOffsetS = () => -new Date().getTimezoneOffset() * 60
+const tzOffsetS = () => -new Date().getTimezoneOffset() * 60
 
 // ── the Apple Health aggregate tools (docs/health-hub.md) ──
 /** How the hub made a day value. `sum`, `count`, and `minutes` add up over a day; `mean` and `last` do not. */

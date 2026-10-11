@@ -21,3 +21,15 @@
     </div>
   </div>
 </div>
+
+<style>
+  .meter { display: grid; grid-template-columns: auto 1fr; gap: 14px 16px; align-items: center; padding: 16px 0; }
+  .score { font-family: var(--round); font-size: 40px; font-weight: 600; letter-spacing: -0.03em; line-height: 1; min-width: 64px; font-variant-numeric: tabular-nums; }
+  :global(:lang(zh)) .score { letter-spacing: 0; }
+  .score.none { color: var(--mute); }
+  .name { font-weight: 600; }
+  .band { font-size: 13px; color: var(--ash); }
+  .bars { display: flex; gap: 3px; align-items: flex-end; height: 26px; margin-top: 6px; }
+  .bars i { display: block; width: 8px; border-radius: 2px 2px 0 0; background: var(--fill-strong); transition: height var(--dur) var(--ease); }
+  .bars i.today { background: var(--ring); }
+</style>

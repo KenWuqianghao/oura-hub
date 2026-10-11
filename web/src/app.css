@@ -123,6 +123,8 @@ button { font: inherit; color: inherit; }
 .section { padding: 28px 0; border-top: 0.5px solid var(--rule-strong); }
 .section:first-child { border-top: 0; padding-top: 8px; }
 .section.flush { border-top: 0; padding-top: 8px; }
+/* a section that a link can open: it stops under the top bar */
+.section[id] { scroll-margin-top: 64px; }
 .eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--ash); display: flex; align-items: center; gap: 12px; margin: 0 0 14px; min-height: 20px; }
 .eyebrow .spacer { flex: 1; }
 .eyebrow .aside { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--mute); }
@@ -130,7 +132,7 @@ button { font: inherit; color: inherit; }
 :lang(zh) .eyebrow { font-size: 13px; letter-spacing: 0; text-transform: none; }
 h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin: 0; }
 h2 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px; }
-:lang(zh) :is(h1, h2, .lede, .large-title, .brand, .hero, .stat .value, .meter .score) { letter-spacing: 0; }
+:lang(zh) :is(h1, h2, .lede, .large-title, .brand, .hero, .stat .value) { letter-spacing: 0; }
 .page-head { display: flex; align-items: flex-end; gap: 16px 24px; flex-wrap: wrap; }
 .page-head .text { flex: 1 1 320px; min-width: 0; }
 .large-title { font-size: 34px; line-height: 1.12; font-weight: 700; letter-spacing: -0.022em; margin: 0; }
@@ -177,16 +179,6 @@ h2 { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; margin: 0 0 6px
 .stat .value { font-family: var(--round); font-size: 30px; font-weight: 600; letter-spacing: -0.02em; line-height: 1.05; font-variant-numeric: tabular-nums; }
 .stat .value small { font-family: var(--font); font-size: 14px; font-weight: 500; color: var(--ash); margin-left: 4px; letter-spacing: 0; }
 .stat .delta { font-size: 13px; color: var(--ash); min-height: 19px; }
-
-/* meters (scores) */
-.meter { display: grid; grid-template-columns: auto 1fr; gap: 14px 16px; align-items: center; padding: 16px 0; }
-.meter .score { font-family: var(--round); font-size: 40px; font-weight: 600; letter-spacing: -0.03em; line-height: 1; min-width: 64px; font-variant-numeric: tabular-nums; }
-.meter .score.none { color: var(--mute); }
-.meter .name { font-weight: 600; }
-.meter .band { font-size: 13px; color: var(--ash); }
-.meter .bars { display: flex; gap: 3px; align-items: flex-end; height: 26px; margin-top: 6px; }
-.meter .bars i { display: block; width: 8px; border-radius: 2px 2px 0 0; background: var(--fill-strong); transition: height var(--dur) var(--ease); }
-.meter .bars i.today { background: var(--ring); }
 
 /* tables */
 .table-scroll { overflow-x: auto; }
@@ -235,16 +227,14 @@ table.t td:last-child, table.t th:last-child { border-radius: 0 6px 6px 0; }
 .empty b { color: var(--ink); display: block; margin-bottom: 4px; }
 .skeleton { background: var(--fill); border-radius: 8px; }
 
-/* a list to pick from: the metrics of Trends, the agents of Ask */
-.metric-list { display: flex; flex-direction: column; }
-.metric-list .group { font-size: 12px; font-weight: 600; color: var(--ash); text-transform: uppercase; letter-spacing: 0.05em; padding: 14px 0 6px; }
-:lang(zh) .metric-list .group { font-size: 13px; letter-spacing: 0; text-transform: none; }
-.metric-list button { border: 0; background: transparent; text-align: left; padding: 7px 10px; margin: 0 -10px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; color: var(--ink); transition: background-color var(--dur-fast) ease, transform var(--dur-fast) var(--ease); }
-.metric-list button:hover:not(:disabled) { background: var(--fill); }
-.metric-list button:active:not(:disabled) { transform: scale(0.985); }
-.metric-list button:disabled { color: var(--mute); cursor: default; }
-.metric-list button.active { background: var(--fill); font-weight: 600; }
-.metric-list button .u { color: var(--mute); font-size: 12px; font-weight: 400; white-space: nowrap; }
+/* a list to pick from: the agents and the questions of Ask */
+.pick-list { display: flex; flex-direction: column; }
+.pick-list button { border: 0; background: transparent; text-align: left; padding: 7px 10px; margin: 0 -10px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; color: var(--ink); transition: background-color var(--dur-fast) ease, transform var(--dur-fast) var(--ease); }
+.pick-list button:hover:not(:disabled) { background: var(--fill); }
+.pick-list button:active:not(:disabled) { transform: scale(0.985); }
+.pick-list button:disabled { color: var(--mute); cursor: default; }
+.pick-list button.active { background: var(--fill); font-weight: 600; }
+.pick-list button .u { color: var(--mute); font-size: 12px; font-weight: 400; white-space: nowrap; }
 
 /* Motion. The sections of a page enter once, in a short stagger; the page itself
    cross-fades on a route change (a view transition where the browser has one). */

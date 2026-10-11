@@ -25,7 +25,7 @@ const utc = (ymd: string) => Date.UTC(+ymd.slice(0, 4), +ymd.slice(5, 7) - 1, +y
 const ymdOf = (ms: number) => new Date(ms).toISOString().slice(0, 10)
 /** Whole days from `a` to `b`, the two ends included. */
 export const spanDays = (a: string, b: string) => Math.round((utc(b) - utc(a)) / DAY) + 1
-export const bucketSize = (days: number): BucketSize => days <= MAX_MARKS ? 'day' : days / 7 <= MAX_MARKS ? 'week' : 'month'
+const bucketSize = (days: number): BucketSize => days <= MAX_MARKS ? 'day' : days / 7 <= MAX_MARKS ? 'week' : 'month'
 
 /** The first day of the bucket that holds `ymd`. Weeks start on Monday. */
 function bucketStart(ymd: string, size: BucketSize): string {

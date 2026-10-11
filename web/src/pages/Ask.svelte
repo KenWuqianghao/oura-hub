@@ -97,7 +97,7 @@
   <div class="section cols cols-1-3" style="gap: 40px">
     <div>
       <div class="eyebrow">{t('ask.agent')}</div>
-      <div class="metric-list">
+      <div class="pick-list">
         {#each providers as p}
           <button class:active={provider === p.id} disabled={!p.available} onclick={() => (provider = p.id)} title={p.available ? p.path ?? '' : t('ask.not_installed_tip', { hint: p.login_hint })}>
             <span>{p.title}</span><span class="u">{t(p.available ? (sessions[p.id] ? 'ask.in_conversation' : 'ask.ready') : 'ask.not_installed')}</span>
@@ -107,7 +107,7 @@
       {#if current && !current.available}<p class="small sub">{t('ask.install_hint', { agent: current.title, hint: current.login_hint })}</p>{/if}
       <button class="btn" style="margin-top: 12px" onclick={reset} disabled={busy}><RotateCcw size={14} /> {t('ask.new_conversation')}</button>
       <div class="eyebrow" style="margin-top: 28px">{t('ask.try')}</div>
-      <div class="metric-list">
+      <div class="pick-list">
         {#each quick as q}<button onclick={() => ask(q)} disabled={busy || !current?.available}><span style="white-space: normal">{q}</span></button>{/each}
       </div>
     </div>

@@ -67,7 +67,7 @@ export const loadSleep = (range: RangeId): Promise<SleepNight[]> => cached(`slee
 /** Workouts over a range, newest first. */
 export const loadWorkouts = (range: RangeId): Promise<HealthWorkout[]> => cached(`workouts|${range}`, async () => (await api.workouts({ days: rangeDays(range), limit: 2000 })).workouts)
 /** Every kind the hub holds, with its sample count, first and newest time, aggregation, and unit. */
-export const loadKinds = (): Promise<HealthKind[]> => cached('kinds', async () => (await api.healthKinds()).kinds)
+const loadKinds = (): Promise<HealthKind[]> => cached('kinds', async () => (await api.healthKinds()).kinds)
 
 /** The first and the newest day (yyyy-mm-dd) of a kind on the hub. */
 export interface Coverage { first: string; newest: string }
@@ -108,6 +108,5 @@ export function resource<T>(load: () => Promise<T>): Resource<T> {
 export const daily = (kind: () => string, range: () => RangeId): Resource<Daily> => resource(() => loadDaily(kind(), range()))
 /** Several kinds as one resource: `data` is in the order of `kinds` and arrives when the slowest kind is there. */
 export const dailyAll = (kinds: () => string[], range: () => RangeId): Resource<Daily[]> => resource(() => Promise.all(kinds().map(k => loadDaily(k, range()))))
-export const sleepNights = (range: () => RangeId): Resource<SleepNight[]> => resource(() => loadSleep(range()))
 export const workouts = (range: () => RangeId): Resource<HealthWorkout[]> => resource(() => loadWorkouts(range()))
 export const healthKinds = (): Resource<HealthKind[]> => resource(loadKinds)

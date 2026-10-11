@@ -41,7 +41,7 @@ export function withBreaks(points: { ymd: string; value: number }[], at: (ymd: s
 // HKElectrocardiogram.Classification raw values, as the phone app writes them: "classification_<n>"
 const ECG = { 1: 'sinus', 2: 'afib', 3: 'low', 4: 'high', 5: 'poor', 6: 'other' } as const
 export type EcgClass = typeof ECG[keyof typeof ECG] | 'unknown'
-export function ecgClass(category: string | undefined): EcgClass {
+function ecgClass(category: string | undefined): EcgClass {
   const n = Number(/^classification_(\d+)$/.exec(category ?? '')?.[1])
   return Object.hasOwn(ECG, n) ? ECG[n as keyof typeof ECG] : 'unknown'
 }

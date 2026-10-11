@@ -18,7 +18,7 @@ export interface HistoryNight extends SleepNight {
   schedule: Schedule | null
 }
 
-export function scheduleOf(n: SleepNight): Schedule | null {
+function scheduleOf(n: SleepNight): Schedule | null {
   if ((n.end_unix - n.start_unix) / 60 - n.in_bed_min > NAP_SLACK_MIN) return null
   const midnight = dayStartMs(n.ymd) / 1000
   return { bed: (n.start_unix - midnight) / 3600, wake: (n.end_unix - midnight) / 3600 }

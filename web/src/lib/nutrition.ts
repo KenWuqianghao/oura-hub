@@ -40,7 +40,6 @@ export const NUTRIENTS: readonly Nutrient[] = [
   // the hub stores total sugar and the Daily Value (50 g) is for added sugar; caffeine has no Daily Value
   dv('dietary_sugar', 'other'), dv('dietary_caffeine', 'other'),
 ]
-export const NUTRIENT_GROUPS: readonly NutrientGroup[] = ['minerals', 'vitamins', 'other']
 
 /** Every kind the page reads from the food log, for one batched request. */
 export const DIET_KINDS: readonly string[] = [...new Set<string>([
