@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
+use crate::kinds::{Agg, KindDef};
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HealthSample {
     pub uuid: String,
@@ -50,6 +52,43 @@ pub struct HealthOutcome {
     pub total: i64,
 }
 
+/// One day of one kind, in stored units, as the store aggregates it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DayValue {
+    /// Local days since 1970-01-01.
+    pub day: i64,
+    pub value: f64,
+    /// Only for `Agg::Mean` and `Agg::Last`.
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    /// Rows behind `value`. For a best-source kind, the rows of that source.
+    pub n: i64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Workout {
+    pub sample: HealthSample,
+    pub hr_avg: Option<f64>,
+    pub hr_max: Option<f64>,
+}
+
+/// A sleep row belongs to the night whose wake day is the local day of its start
+/// plus this: a 23:00 segment and a 07:00 segment land on the same day.
+pub const SLEEP_DAY_SHIFT_S: i64 = 6 * 3600;
+
+/// The seconds one source logged in one sleep category on one night.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SleepSlice {
+    /// The wake day: local days since 1970-01-01.
+    pub day: i64,
+    pub source_bundle: String,
+    pub source_name: Option<String>,
+    pub category: String,
+    pub seconds: f64,
+    pub first_start_unix: f64,
+    pub last_end_unix: f64,
+}
+
 /// Kinds summed per day. iPhone and Watch both record these, so the day total is
 /// the best single source, not the sum of all sources (HealthKit does the same).
 const DAILY_KINDS: &[(&str, &str)] = &[
@@ -66,8 +105,117 @@ fn ymd_at(unix: f64, tz_s: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+pub fn ymd_of_day(day: i64) -> String {
+    let (y, m, d) = oura_summary::civil(day);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 fn round1(x: f64) -> f64 {
     (x * 10.0).round() / 10.0
+}
+
+fn round3(x: f64) -> f64 {
+    (x * 1000.0).round() / 1000.0
+}
+
+/// One kind of `get_health_daily`: the day values in the unit of `def`.
+pub fn daily_json(def: &KindDef, days: &[DayValue]) -> Value {
+    let scaled = |x: f64| round3(x * def.scale);
+    let days: Vec<Value> = days
+        .iter()
+        .map(|d| {
+            let mut day = json!({ "ymd": ymd_of_day(d.day), "value": scaled(d.value), "n": d.n });
+            if matches!(def.agg, Agg::Mean | Agg::Last) {
+                day["min"] = json!(d.min.map(scaled));
+                day["max"] = json!(d.max.map(scaled));
+            }
+            day
+        })
+        .collect();
+    json!({ "kind": def.kind, "agg": def.agg.as_str(), "unit": def.unit, "days": days })
+}
+
+#[derive(Default)]
+struct SourceNight<'a> {
+    name: Option<&'a str>,
+    start: f64,
+    end: f64,
+    seconds: BTreeMap<&'a str, f64>,
+}
+
+impl SourceNight<'_> {
+    fn minutes(&self, category: &str) -> f64 {
+        self.seconds.get(category).copied().unwrap_or(0.0) / 60.0
+    }
+
+    fn asleep_min(&self) -> f64 {
+        self.seconds.iter().filter(|(c, _)| c.starts_with("asleep")).map(|(_, s)| s / 60.0).sum()
+    }
+}
+
+/// One row per night, oldest first. The source with the most asleep time gives the
+/// night; a source with only `in_bed` rows gives it when no source has asleep time.
+pub fn sleep_nights(slices: &[SleepSlice]) -> Vec<Value> {
+    let mut nights: BTreeMap<i64, BTreeMap<&str, SourceNight>> = BTreeMap::new();
+    for s in slices {
+        let n = nights.entry(s.day).or_default().entry(s.source_bundle.as_str()).or_insert(SourceNight {
+            start: f64::INFINITY,
+            end: f64::NEG_INFINITY,
+            ..Default::default()
+        });
+        n.name = n.name.or(s.source_name.as_deref());
+        n.start = n.start.min(s.first_start_unix);
+        n.end = n.end.max(s.last_end_unix);
+        *n.seconds.entry(s.category.as_str()).or_insert(0.0) += s.seconds;
+    }
+    nights
+        .iter()
+        .filter_map(|(day, sources)| {
+            let (bundle, n) = sources.iter().max_by(|(_, a), (_, b)| {
+                a.asleep_min().total_cmp(&b.asleep_min()).then(a.minutes("in_bed").total_cmp(&b.minutes("in_bed")))
+            })?;
+            let asleep = n.asleep_min();
+            // Not `end - start`: a nap after the night shares its wake day, and the
+            // hours between the two were not in bed.
+            let in_bed = if n.seconds.contains_key("in_bed") { n.minutes("in_bed") } else { asleep + n.minutes("awake") };
+            Some(json!({
+                "ymd": ymd_of_day(*day),
+                "source": n.name.unwrap_or(bundle),
+                "start_unix": n.start as i64,
+                "end_unix": n.end as i64,
+                "in_bed_min": round1(in_bed),
+                "asleep_min": (asleep > 0.0).then(|| round1(asleep)),
+                "deep_min": round1(n.minutes("asleep_deep")),
+                "core_min": round1(n.minutes("asleep_core")),
+                "rem_min": round1(n.minutes("asleep_rem")),
+                "unspecified_min": round1(n.minutes("asleep_unspecified")),
+                "awake_min": round1(n.minutes("awake")),
+            }))
+        })
+        .collect()
+}
+
+/// A workout row as the tools return it.
+pub fn workout_json(r: &HealthSample) -> Value {
+    let md = r.metadata.as_ref().unwrap_or(&Value::Null);
+    json!({
+        "activity": r.category,
+        "start_unix": r.start_unix as i64,
+        "end_unix": r.end_unix as i64,
+        "duration_min": r.value.map(round1),
+        "kcal": md["total_energy_kcal"].as_f64().map(|x| x.round()),
+        "distance_m": md["total_distance_m"].as_f64().map(|x| x.round()),
+        "source": r.source_name,
+        "user_entered": md["user_entered"].as_bool().unwrap_or(false),
+    })
+}
+
+/// `get_workouts`: the workout plus the heart rate inside it.
+pub fn workout_with_hr_json(w: &Workout) -> Value {
+    let mut v = workout_json(&w.sample);
+    v["hr_avg"] = json!(w.hr_avg.map(round1));
+    v["hr_max"] = json!(w.hr_max.map(round1));
+    v
 }
 
 fn latest<'a>(rows: &'a [HealthSample], kind: &str) -> Option<&'a HealthSample> {
@@ -172,20 +320,7 @@ fn workouts(rows: &[HealthSample], now_unix: i64) -> Vec<Value> {
     let floor = now_unix as f64 - 48.0 * 3600.0;
     let mut ws: Vec<&HealthSample> = rows.iter().filter(|r| r.kind == "workout" && r.end_unix >= floor).collect();
     ws.sort_by(|a, b| b.start_unix.total_cmp(&a.start_unix));
-    ws.iter()
-        .map(|r| {
-            let md = r.metadata.clone().unwrap_or(Value::Null);
-            json!({
-                "activity": r.category,
-                "start_unix": r.start_unix as i64,
-                "end_unix": r.end_unix as i64,
-                "duration_min": r.value.map(round1),
-                "kcal": md["total_energy_kcal"].as_f64().map(|x| x.round()),
-                "distance_m": md["total_distance_m"].as_f64().map(|x| x.round()),
-                "source": r.source_name,
-            })
-        })
-        .collect()
+    ws.iter().map(|r| workout_json(r)).collect()
 }
 
 /// The compact Apple Health picture for planning: today and yesterday totals,
@@ -341,6 +476,51 @@ mod tests {
         assert_eq!(w["last_sleep"]["asleep_min"], 360.0);
         assert_eq!(w["last_sleep"]["in_bed_min"], 360.0);
         assert_eq!(w["last_sleep"]["end_unix"], NOW - 6 * 3600);
+    }
+
+    #[test]
+    fn daily_values_come_in_the_display_unit() {
+        let day = |value: f64| DayValue { day: 19000, value, min: Some(value / 2.0), max: Some(value), n: 4 };
+        let spo2 = daily_json(&crate::kinds::def("oxygen_saturation", None, true), &[day(0.9612345)]);
+        assert_eq!(spo2["unit"], "%");
+        assert_eq!(spo2["agg"], "mean");
+        assert_eq!(spo2["days"][0], json!({ "ymd": "2022-01-08", "value": 96.123, "min": 48.062, "max": 96.123, "n": 4 }));
+        let sodium = daily_json(&crate::kinds::def("dietary_sodium", None, true), &[day(2.3)]);
+        assert_eq!((sodium["unit"].as_str(), sodium["days"][0]["value"].as_f64()), (Some("mg"), Some(2300.0)));
+        assert!(sodium["days"][0].get("min").is_none(), "a sum has no min");
+        let b12 = daily_json(&crate::kinds::def("dietary_vitamin_b12", None, true), &[day(0.0000024)]);
+        assert_eq!((b12["unit"].as_str(), b12["days"][0]["value"].as_f64()), (Some("µg"), Some(2.4)));
+        let daylight = daily_json(&crate::kinds::def("time_in_daylight", None, true), &[day(5400.0)]);
+        assert_eq!((daylight["unit"].as_str(), daylight["days"][0]["value"].as_f64()), (Some("min"), Some(90.0)));
+    }
+
+    fn slice(day: i64, bundle: &str, category: &str, start: f64, minutes: f64) -> SleepSlice {
+        SleepSlice {
+            day, source_bundle: bundle.into(), source_name: Some(bundle.rsplit('.').next().unwrap().into()),
+            category: category.into(), seconds: minutes * 60.0, first_start_unix: start, last_end_unix: start + minutes * 60.0,
+        }
+    }
+
+    #[test]
+    fn a_night_comes_from_the_source_with_the_most_sleep() {
+        let nights = sleep_nights(&[
+            slice(19001, "com.apple.phone", "in_bed", 1000.0, 540.0),
+            slice(19001, "com.apple.watch", "asleep_core", 4600.0, 240.0),
+            slice(19001, "com.apple.watch", "asleep_deep", 19000.0, 60.0),
+            slice(19001, "com.apple.watch", "awake", 30000.0, 20.0),
+            slice(19001, "com.ouraring.oura", "asleep_core", 4000.0, 200.0),
+            slice(19001, "com.ouraring.oura", "in_bed", 4000.0, 400.0),
+            slice(19000, "com.apple.phone", "in_bed", 500.0, 480.0),
+        ]);
+        assert_eq!(nights.len(), 2);
+        assert_eq!(nights[0], json!({
+            "ymd": "2022-01-08", "source": "phone", "start_unix": 500, "end_unix": 29300, "in_bed_min": 480.0,
+            "asleep_min": null, "deep_min": 0.0, "core_min": 0.0, "rem_min": 0.0, "unspecified_min": 0.0, "awake_min": 0.0,
+        }), "only in_bed rows: the night exists and asleep is not known");
+        assert_eq!(nights[1], json!({
+            "ymd": "2022-01-09", "source": "watch", "start_unix": 4600, "end_unix": 31200, "in_bed_min": 320.0,
+            "asleep_min": 300.0, "deep_min": 60.0, "core_min": 240.0, "rem_min": 0.0, "unspecified_min": 0.0, "awake_min": 20.0,
+        }), "no in_bed rows: in bed is the time asleep plus awake, not first start to last end");
     }
 
     #[test]

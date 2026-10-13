@@ -5,11 +5,12 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, ToSql};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::health::{HealthBatch, HealthOutcome, HealthSample};
+use crate::health::{DayValue, HealthBatch, HealthOutcome, HealthSample, SleepSlice, Workout, SLEEP_DAY_SHIFT_S};
+use crate::kinds::{Agg, KindDef};
 
 pub struct Store {
     conn: Mutex<Connection>,
@@ -29,6 +30,37 @@ pub struct PutOutcome {
     pub stored: bool,
     pub sha256: String,
     pub snapshots: i64,
+}
+
+/// What the hub holds of one kind.
+#[derive(Debug, Clone, PartialEq)]
+pub struct KindStats {
+    pub kind: String,
+    pub samples: i64,
+    pub newest_end_unix: f64,
+    /// None when every row starts before `FIRST_START_FLOOR`.
+    pub first_start_unix: Option<f64>,
+    /// The unit on the newest row, before any `kinds` scale.
+    pub unit: Option<String>,
+    /// Whether the newest row carries a value.
+    pub has_values: bool,
+}
+
+/// 2000-01-01. A few category rows arrive with a start near 0; they are not the
+/// start of anyone's history.
+const FIRST_START_FLOOR: f64 = 946_684_800.0;
+
+const NEWEST_ROW: &str = "FROM health_samples WHERE kind =";
+const SAMPLE_COLS: &str = "uuid, kind, start_unix, end_unix, value, unit, category, source_bundle, source_name, device, metadata";
+
+fn sample_row(r: &rusqlite::Row) -> rusqlite::Result<HealthSample> {
+    let metadata: Option<String> = r.get(10)?;
+    Ok(HealthSample {
+        uuid: r.get(0)?, kind: r.get(1)?, start_unix: r.get(2)?, end_unix: r.get(3)?,
+        value: r.get(4)?, unit: r.get(5)?, category: r.get(6)?, source_bundle: r.get(7)?,
+        source_name: r.get(8)?, device: r.get(9)?,
+        metadata: metadata.and_then(|m| serde_json::from_str(&m).ok()),
+    })
 }
 
 const SCHEMA: &str = "
@@ -155,23 +187,13 @@ impl Store {
         let conn = self.conn.lock().unwrap();
         let until = until_unix.unwrap_or(f64::MAX);
         let sql = format!(
-            "SELECT uuid, kind, start_unix, end_unix, value, unit, category, source_bundle, source_name, device, metadata
-             FROM health_samples WHERE end_unix >= ?1 AND end_unix <= ?4 {} ORDER BY end_unix DESC LIMIT ?2",
+            "SELECT {SAMPLE_COLS} FROM health_samples WHERE end_unix >= ?1 AND end_unix <= ?4 {} ORDER BY end_unix DESC LIMIT ?2",
             if kind.is_some() { "AND kind = ?3" } else { "" }
         );
         let mut stmt = conn.prepare(&sql)?;
-        let map = |r: &rusqlite::Row| -> rusqlite::Result<HealthSample> {
-            let metadata: Option<String> = r.get(10)?;
-            Ok(HealthSample {
-                uuid: r.get(0)?, kind: r.get(1)?, start_unix: r.get(2)?, end_unix: r.get(3)?,
-                value: r.get(4)?, unit: r.get(5)?, category: r.get(6)?, source_bundle: r.get(7)?,
-                source_name: r.get(8)?, device: r.get(9)?,
-                metadata: metadata.and_then(|m| serde_json::from_str(&m).ok()),
-            })
-        };
         let rows = match kind {
-            Some(k) => stmt.query_map(params![since_unix, limit as i64, k, until], map)?.collect::<std::result::Result<Vec<_>, _>>()?,
-            None => stmt.query_map(params![since_unix, limit as i64, "", until], map)?.collect::<std::result::Result<Vec<_>, _>>()?,
+            Some(k) => stmt.query_map(params![since_unix, limit as i64, k, until], sample_row)?.collect::<std::result::Result<Vec<_>, _>>()?,
+            None => stmt.query_map(params![since_unix, limit as i64, "", until], sample_row)?.collect::<std::result::Result<Vec<_>, _>>()?,
         };
         Ok(rows)
     }
@@ -187,28 +209,140 @@ impl Store {
                ON n.kind = h.kind AND n.newest = h.end_unix
              GROUP BY h.kind",
         )?;
+        let rows = stmt.query_map([], sample_row)?.collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn health_kinds(&self) -> Result<Vec<KindStats>> {
+        let conn = self.conn.lock().unwrap();
+        // The count and the newest end need every row. The rest is a seek per kind
+        // on the (kind, start_unix) index: the oldest start, and the newest row for
+        // the unit and for whether the kind carries values.
+        let mut stmt = conn.prepare(&format!(
+            "SELECT k.kind, k.samples, k.newest,
+                    (SELECT MIN(start_unix) FROM health_samples WHERE kind = k.kind AND start_unix >= ?1),
+                    (SELECT unit {NEWEST_ROW} k.kind ORDER BY start_unix DESC LIMIT 1),
+                    (SELECT value IS NOT NULL {NEWEST_ROW} k.kind ORDER BY start_unix DESC LIMIT 1)
+             FROM (SELECT kind, COUNT(*) AS samples, MAX(end_unix) AS newest FROM health_samples GROUP BY kind) k
+             ORDER BY k.kind"
+        ))?;
         let rows = stmt
-            .query_map([], |r| {
-                let metadata: Option<String> = r.get(10)?;
-                Ok(HealthSample {
-                    uuid: r.get(0)?, kind: r.get(1)?, start_unix: r.get(2)?, end_unix: r.get(3)?,
-                    value: r.get(4)?, unit: r.get(5)?, category: r.get(6)?, source_bundle: r.get(7)?,
-                    source_name: r.get(8)?, device: r.get(9)?,
-                    metadata: metadata.and_then(|m| serde_json::from_str(&m).ok()),
+            .query_map(params![FIRST_START_FLOOR], |r| {
+                Ok(KindStats {
+                    kind: r.get(0)?, samples: r.get(1)?, newest_end_unix: r.get(2)?, first_start_unix: r.get(3)?,
+                    unit: r.get(4)?, has_values: r.get(5)?,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
     }
 
-    /// `(kind, count, newest end_unix)` per kind.
-    pub fn health_kinds(&self) -> Result<Vec<(String, i64, f64)>> {
+    /// The unit and whether there is a value on the newest row of one kind: what
+    /// `kinds::def` needs for a kind its table does not name. `(None, false)` for a
+    /// kind with no rows.
+    pub fn health_kind_shape(&self, kind: &str) -> Result<(Option<String>, bool)> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare("SELECT kind, COUNT(*), MAX(end_unix) FROM health_samples GROUP BY kind ORDER BY kind")?;
+        let shape = conn
+            .query_row(
+                &format!("SELECT unit, value IS NOT NULL {NEWEST_ROW} ?1 ORDER BY start_unix DESC LIMIT 1"),
+                params![kind],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        Ok(shape.unwrap_or((None, false)))
+    }
+
+    /// One value per local day for one kind, oldest first, in stored units. A row
+    /// belongs to the day its start falls on; `lo_unix` (inclusive) and `hi_unix`
+    /// (exclusive) bound the start.
+    pub fn health_daily(&self, def: &KindDef, lo_unix: f64, hi_unix: f64, tz_s: i64) -> Result<Vec<DayValue>> {
+        // A cast truncates toward zero, which is the floor only from 1970-01-01 local on.
+        const DAY: &str = "CAST((start_unix + ?4) / 86400 AS INTEGER)";
+        const WINDOW: &str = "FROM health_samples WHERE kind = ?1 AND start_unix >= ?2 AND start_unix < ?3";
+        let best_source = |per_source: &str| {
+            format!(
+                "SELECT day, MAX(v), NULL, NULL, n FROM (
+                   SELECT {DAY} AS day, {per_source} AS v, COUNT(*) AS n {WINDOW} GROUP BY day, source_bundle)
+                 WHERE v IS NOT NULL GROUP BY day ORDER BY day"
+            )
+        };
+        let sql = match (def.agg, def.category) {
+            (Agg::Sum, _) => best_source("SUM(value)"),
+            (Agg::Minutes, _) => best_source("SUM(end_unix - start_unix) / 60.0"),
+            (Agg::Count, None) => best_source("COUNT(*)"),
+            (Agg::Count, Some(_)) => best_source("COUNT(CASE WHEN category = ?5 THEN 1 END)"),
+            (Agg::Mean, _) => format!(
+                "SELECT {DAY} AS day, AVG(value), MIN(value), MAX(value), COUNT(value) {WINDOW} AND value IS NOT NULL
+                 GROUP BY day ORDER BY day"
+            ),
+            (Agg::Last, _) => format!(
+                "WITH r AS (SELECT {DAY} AS day, start_unix, value {WINDOW} AND value IS NOT NULL)
+                 SELECT a.day, l.value, a.lo, a.hi, a.n
+                 FROM (SELECT day, MIN(value) AS lo, MAX(value) AS hi, COUNT(*) AS n FROM r GROUP BY day) a
+                 JOIN (SELECT day, value, MAX(start_unix) FROM r GROUP BY day) l ON l.day = a.day
+                 ORDER BY a.day"
+            ),
+        };
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(&sql)?;
+        let mut args: Vec<&dyn ToSql> = vec![&def.kind, &lo_unix, &hi_unix, &tz_s];
+        if let (Agg::Count, Some(category)) = (def.agg, &def.category) {
+            args.push(category);
+        }
         let rows = stmt
-            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?
+            .query_map(args.as_slice(), |r| Ok(DayValue { day: r.get(0)?, value: r.get(1)?, min: r.get(2)?, max: r.get(3)?, n: r.get(4)? }))?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(rows)
+    }
+
+    /// Workouts that start inside `[lo_unix, hi_unix]`, newest first, each with the
+    /// mean and the maximum of the heart rate rows that start inside it.
+    pub fn health_workouts(&self, lo_unix: f64, hi_unix: f64, limit: usize) -> Result<Vec<Workout>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {SAMPLE_COLS} FROM health_samples
+             WHERE kind = 'workout' AND start_unix >= ?1 AND start_unix <= ?2 ORDER BY start_unix DESC LIMIT ?3"
+        ))?;
+        let samples = stmt.query_map(params![lo_unix, hi_unix, limit as i64], sample_row)?.collect::<std::result::Result<Vec<_>, _>>()?;
+        let mut hr = conn.prepare(
+            "SELECT AVG(value), MAX(value) FROM health_samples WHERE kind = 'heart_rate' AND start_unix >= ?1 AND start_unix <= ?2",
+        )?;
+        samples
+            .into_iter()
+            .map(|sample| {
+                let (hr_avg, hr_max) = hr.query_row(params![sample.start_unix, sample.end_unix], |r| Ok((r.get(0)?, r.get(1)?)))?;
+                Ok(Workout { sample, hr_avg, hr_max })
+            })
+            .collect()
+    }
+
+    /// Seconds of sleep per night, source, and category.
+    pub fn health_sleep_slices(&self, lo_unix: f64, hi_unix: f64, tz_s: i64) -> Result<Vec<SleepSlice>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT CAST((start_unix + ?3 + ?4) / 86400 AS INTEGER) AS day, COALESCE(source_bundle, ''), MAX(source_name),
+                    COALESCE(category, ''), SUM(end_unix - start_unix), MIN(start_unix), MAX(end_unix)
+             FROM health_samples WHERE kind = 'sleep_analysis' AND start_unix >= ?1 AND start_unix < ?2
+             GROUP BY day, source_bundle, category ORDER BY day",
+        )?;
+        let rows = stmt
+            .query_map(params![lo_unix, hi_unix, tz_s, SLEEP_DAY_SHIFT_S], |r| {
+                Ok(SleepSlice {
+                    day: r.get(0)?, source_bundle: r.get(1)?, source_name: r.get(2)?, category: r.get(3)?,
+                    seconds: r.get(4)?, first_start_unix: r.get(5)?, last_end_unix: r.get(6)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// The UTC offset of the latest snapshot in seconds; 0 when there is none.
+    pub fn latest_tz_s(&self) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        let hours: Option<Option<i64>> = conn
+            .query_row("SELECT CAST(json_extract(body, '$.tz') AS INTEGER) FROM snapshots ORDER BY received_at DESC, id DESC LIMIT 1", [], |r| r.get(0))
+            .optional()?;
+        Ok(hours.flatten().unwrap_or(0) * 3600)
     }
 
     /// Keep only the newest `keep` snapshots. Returns the number removed.
@@ -225,7 +359,7 @@ impl Store {
 mod tests {
     use super::*;
     use serde_json::json;
-    use crate::health::{HealthBatch, HealthSample};
+    use crate::health::{DayValue, HealthBatch, HealthSample};
 
     #[test]
     fn put_latest_and_dedup() {
@@ -269,7 +403,132 @@ mod tests {
         let latest = s.health_latest_per_kind().unwrap();
         assert_eq!(latest.len(), 1);
         assert_eq!(latest[0].uuid, "a");
-        assert_eq!(s.health_kinds().unwrap(), vec![("heart_rate".to_string(), 1, 100.0)]);
+        let kinds = s.health_kinds().unwrap();
+        assert_eq!(kinds.len(), 1);
+        assert_eq!((kinds[0].kind.as_str(), kinds[0].samples, kinds[0].newest_end_unix), ("heart_rate", 1, 100.0));
+    }
+
+    // 2022-01-08 00:00 UTC, day 19000
+    const D: f64 = 19_000.0 * 86400.0;
+
+    fn h(uuid: &str, kind: &str, start: f64, value: Option<f64>, category: Option<&str>, bundle: &str) -> HealthSample {
+        HealthSample {
+            uuid: uuid.into(), kind: kind.into(), start_unix: start, end_unix: start + 600.0, value,
+            unit: None, category: category.map(Into::into), source_bundle: Some(bundle.into()),
+            source_name: Some(bundle.into()), device: None, metadata: None,
+        }
+    }
+
+    fn with(samples: Vec<HealthSample>) -> Store {
+        let s = Store::in_memory().unwrap();
+        s.put_health(&HealthBatch { tz_offset_s: None, samples, deleted: vec![] }, 1).unwrap();
+        s
+    }
+
+    fn daily(s: &Store, kind: &str, tz_s: i64) -> Vec<DayValue> {
+        s.health_daily(&crate::kinds::def(kind, None, false), D - 86400.0, D + 2.0 * 86400.0, tz_s).unwrap()
+    }
+
+    #[test]
+    fn a_sum_kind_takes_the_best_source_of_the_day() {
+        let s = with(vec![
+            h("a", "step_count", D + 100.0, Some(4000.0), None, "watch"),
+            h("b", "step_count", D + 200.0, Some(2000.0), None, "watch"),
+            h("c", "step_count", D + 100.0, Some(5000.0), None, "phone"),
+            h("d", "step_count", D + 86400.0, Some(700.0), None, "phone"),
+        ]);
+        let days = daily(&s, "step_count", 0);
+        assert_eq!(days.iter().map(|d| (d.day, d.value, d.n)).collect::<Vec<_>>(), [(19000, 6000.0, 2), (19001, 700.0, 1)]);
+        assert_eq!(days[0].min, None);
+    }
+
+    #[test]
+    fn a_mean_kind_has_the_mean_min_and_max_of_all_sources() {
+        let s = with(vec![
+            h("a", "heart_rate", D + 100.0, Some(50.0), None, "watch"),
+            h("b", "heart_rate", D + 200.0, Some(70.0), None, "watch"),
+            h("c", "heart_rate", D + 300.0, Some(120.0), None, "strap"),
+        ]);
+        assert_eq!(daily(&s, "heart_rate", 0), [DayValue { day: 19000, value: 80.0, min: Some(50.0), max: Some(120.0), n: 3 }]);
+    }
+
+    #[test]
+    fn a_last_kind_has_the_last_reading_of_the_day() {
+        let s = with(vec![
+            h("a", "body_mass", D + 300.0, Some(71.0), None, "scale"),
+            h("b", "body_mass", D + 900.0, Some(70.2), None, "scale"),
+            h("c", "body_mass", D + 100.0, Some(70.6), None, "phone"),
+        ]);
+        assert_eq!(daily(&s, "body_mass", 0), [DayValue { day: 19000, value: 70.2, min: Some(70.2), max: Some(71.0), n: 3 }]);
+    }
+
+    #[test]
+    fn a_count_kind_counts_only_its_category() {
+        let s = with(vec![
+            h("a", "stand_hour", D + 3600.0, None, Some("stood"), "watch"),
+            h("b", "stand_hour", D + 7200.0, None, Some("idle"), "watch"),
+            h("c", "stand_hour", D + 10800.0, None, Some("stood"), "watch"),
+            h("d", "handwashing_event", D + 100.0, None, Some("value_0"), "watch"),
+        ]);
+        assert_eq!(daily(&s, "stand_hour", 0).iter().map(|d| (d.value, d.n)).collect::<Vec<_>>(), [(2.0, 3)]);
+        assert_eq!(daily(&s, "handwashing_event", 0)[0].value, 1.0);
+        // 600 s rows
+        assert_eq!(with(vec![h("m", "mindful_session", D, None, Some("value_0"), "app")]).health_daily(
+            &crate::kinds::def("mindful_session", None, false), D, D + 86400.0, 0).unwrap()[0].value, 10.0);
+    }
+
+    #[test]
+    fn the_offset_moves_a_row_to_the_local_day() {
+        // 23:00 UTC is the next day at UTC+2 and the same day at UTC
+        let s = with(vec![h("a", "step_count", D + 23.0 * 3600.0, Some(10.0), None, "watch")]);
+        assert_eq!(daily(&s, "step_count", 0)[0].day, 19000);
+        assert_eq!(daily(&s, "step_count", 2 * 3600)[0].day, 19001);
+    }
+
+    #[test]
+    fn workouts_carry_the_heart_rate_inside_them() {
+        let mut w = h("w", "workout", D, Some(10.0), Some("running"), "watch");
+        w.metadata = Some(json!({ "total_energy_kcal": 90.0 }));
+        let s = with(vec![
+            w,
+            h("w0", "workout", D - 7200.0, Some(10.0), Some("walking"), "watch"),
+            h("a", "heart_rate", D - 60.0, Some(60.0), None, "watch"),
+            h("b", "heart_rate", D + 60.0, Some(140.0), None, "watch"),
+            h("c", "heart_rate", D + 500.0, Some(160.0), None, "watch"),
+            h("d", "heart_rate", D + 900.0, Some(100.0), None, "watch"),
+        ]);
+        let ws = s.health_workouts(D - 86400.0, D + 86400.0, 10).unwrap();
+        assert_eq!(ws.iter().map(|w| w.sample.uuid.as_str()).collect::<Vec<_>>(), ["w", "w0"], "newest first");
+        assert_eq!((ws[0].hr_avg, ws[0].hr_max), (Some(150.0), Some(160.0)));
+        assert_eq!((ws[1].hr_avg, ws[1].hr_max), (None, None));
+        assert_eq!(s.health_workouts(D - 86400.0, D + 86400.0, 1).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn sleep_rows_join_the_night_they_wake_on() {
+        let s = with(vec![
+            h("a", "sleep_analysis", D - 3600.0, None, Some("asleep_core"), "watch"),
+            h("b", "sleep_analysis", D + 7.0 * 3600.0, None, Some("asleep_core"), "watch"),
+            h("c", "sleep_analysis", D + 19.0 * 3600.0, None, Some("asleep_rem"), "watch"),
+        ]);
+        let slices = s.health_sleep_slices(D - 86400.0, D + 86400.0, 0).unwrap();
+        assert_eq!(slices.iter().map(|x| (x.day, x.category.as_str(), x.seconds)).collect::<Vec<_>>(),
+                   [(19000, "asleep_core", 1200.0), (19001, "asleep_rem", 600.0)]);
+        assert_eq!((slices[0].first_start_unix, slices[0].last_end_unix), (D - 3600.0, D + 7.0 * 3600.0 + 600.0));
+    }
+
+    #[test]
+    fn kind_stats_ignore_a_start_before_2000_and_the_offset_comes_from_the_snapshot() {
+        let s = with(vec![
+            h("a", "constipation", 3.0, None, Some("value_2"), "phone"),
+            h("b", "constipation", D, None, Some("value_2"), "phone"),
+            h("c", "constipation", D + 86400.0, None, Some("value_2"), "phone"),
+        ]);
+        let k = &s.health_kinds().unwrap()[0];
+        assert_eq!((k.samples, k.first_start_unix, k.has_values), (3, Some(D), false));
+        assert_eq!(s.latest_tz_s().unwrap(), 0);
+        s.put(&json!({ "tz": 2, "nights": [] }), 5).unwrap();
+        assert_eq!(s.latest_tz_s().unwrap(), 7200);
     }
 
     #[test]

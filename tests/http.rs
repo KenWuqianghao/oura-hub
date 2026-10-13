@@ -108,7 +108,7 @@ async fn ingest_then_health_then_tools() {
 
     let (_, r) = send(&app, post(&uri, None, rpc(2, "tools/list", json!({})))).await;
     let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(names, ["get_status_now", "get_sleep", "get_trends", "get_watch", "list_health_kinds", "get_health_samples", "get_activity"]);
+    assert_eq!(names, ["get_status_now", "get_sleep", "get_trends", "get_watch", "list_health_kinds", "get_health_samples", "get_health_daily", "get_health_sleep", "get_workouts", "get_activity"]);
 
     let (_, r) = send(&app, post(&uri, None, rpc(3, "tools/call", json!({ "name": "get_status_now", "arguments": {} })))).await;
     assert_eq!(r["result"]["isError"], false, "{r}");
@@ -235,6 +235,9 @@ async fn health_samples_round_trip_and_fold_into_status() {
     let (_, r) = send(&app, post(&uri, None, rpc(2, "tools/call", json!({ "name": "list_health_kinds", "arguments": {} })))).await;
     let kinds = r["result"]["structuredContent"]["kinds"].as_array().unwrap();
     assert!(kinds.iter().any(|k| k["kind"] == "heart_rate" && k["samples"] == 1));
+    let vo2 = kinds.iter().find(|k| k["kind"] == "vo2_max").unwrap();
+    assert_eq!((vo2["agg"].as_str(), vo2["unit"].as_str()), (Some("last"), Some("ml/kg/min")));
+    assert_eq!(vo2["first_start_unix"], (now - 20.0 * 86400.0) as i64);
     assert_eq!(r["result"]["structuredContent"]["count"], kinds.len());
 
     // after a ring summary the status carries a watch block
@@ -248,6 +251,53 @@ async fn health_samples_round_trip_and_fold_into_status() {
     assert_eq!(out["deleted"], 1);
     let (_, h) = send(&app, get_auth("/health")).await;
     assert_eq!(h["health"].as_array().unwrap().len(), 3);
+    assert_eq!(h["health"][0]["first_start_unix"], (now - 3600.0) as i64);
+}
+
+#[tokio::test]
+async fn daily_aggregates_over_the_web_api_need_no_ring_summary() {
+    let app = app();
+    // 2024-01-10 12:00 UTC
+    let noon = 1_704_888_000.0;
+    let sample = |uuid: &str, kind: &str, start: f64, value: f64, bundle: &str| json!({
+        "uuid": uuid, "kind": kind, "start_unix": start, "end_unix": start + 60.0, "value": value, "source_bundle": bundle
+    });
+    let batch = json!({ "samples": [
+        sample("s1", "step_count", noon, 4000.0, "watch"),
+        sample("s2", "step_count", noon + 60.0, 1000.0, "watch"),
+        sample("s3", "step_count", noon, 3000.0, "phone"),
+        sample("o1", "oxygen_saturation", noon, 0.97, "watch"),
+        sample("o2", "oxygen_saturation", noon + 60.0, 0.95, "watch"),
+        sample("x1", "forced_vital_capacity", noon, 4.0, "spirometer"),
+        sample("x2", "forced_vital_capacity", noon + 60.0, 5.0, "spirometer"),
+        sample("late", "step_count", noon + 11.5 * 3600.0, 50.0, "watch"),
+    ] });
+    let (s, _) = send(&app, post("/ingest/health", Some(TOKEN), batch)).await;
+    assert_eq!(s, StatusCode::OK);
+
+    let args = json!({ "kinds": ["oxygen_saturation", "step_count", "forced_vital_capacity", "never_seen"], "start_ymd": "2024-01-09", "end_ymd": "2024-01-11" });
+    let (s, r) = send(&app, post("/api/tool/get_health_daily", Some(TOKEN), args.clone())).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!((r["tz_offset_s"].as_i64(), r["start_ymd"].as_str(), r["end_ymd"].as_str()), (Some(0), Some("2024-01-09"), Some("2024-01-11")));
+    let kinds = r["kinds"].as_array().unwrap();
+    assert_eq!(kinds[0], json!({ "kind": "oxygen_saturation", "agg": "mean", "unit": "%", "days": [
+        { "ymd": "2024-01-10", "value": 96.0, "min": 95.0, "max": 97.0, "n": 2 }] }));
+    assert_eq!(kinds[1], json!({ "kind": "step_count", "agg": "sum", "unit": "steps", "days": [
+        { "ymd": "2024-01-10", "value": 5050.0, "n": 3 }] }));
+    assert_eq!((kinds[2]["agg"].as_str(), kinds[2]["days"][0]["value"].as_f64()), (Some("mean"), Some(4.5)), "a kind the table does not name");
+    assert_eq!(kinds[3]["days"], json!([]), "a kind with no rows is not an error");
+
+    // 23:30 UTC is the next day one hour east
+    let mut east = args;
+    east["tz_offset_s"] = json!(3600);
+    let (_, r) = send(&app, post("/api/tool/get_health_daily", Some(TOKEN), east)).await;
+    let days: Vec<(&str, f64)> = r["kinds"][1]["days"].as_array().unwrap().iter().map(|d| (d["ymd"].as_str().unwrap(), d["value"].as_f64().unwrap())).collect();
+    assert_eq!(days, [("2024-01-10", 5000.0), ("2024-01-11", 50.0)]);
+
+    let (s, r) = send(&app, post("/api/tool/get_health_daily", Some(TOKEN), json!({ "kinds": [], "days": 7 }))).await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY, "{r}");
+    let (s, _) = send(&app, post("/api/tool/get_health_daily", Some(TOKEN), json!({ "kinds": ["step_count"], "start_ymd": "2024-02-30" }))).await;
+    assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 #[tokio::test]
@@ -304,4 +354,17 @@ async fn agent_routes_need_the_token_and_validate_input() {
     assert_eq!(s, StatusCode::BAD_REQUEST);
     let (s, _) = send(&app, post("/api/agent/ask", None, json!({ "provider": "claude", "prompt": "hi" }))).await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn health_samples_reach_back_past_a_year() {
+    let app = app();
+    let start = oura_hub::now_unix() as f64 - 700.0 * 86400.0;
+    let batch = json!({ "samples": [{ "uuid": "a1", "kind": "audio_exposure_event", "start_unix": start, "end_unix": start + 60.0, "category": "loud" }] });
+    let (s, _) = send(&app, post("/ingest/health", Some(TOKEN), batch)).await;
+    assert_eq!(s, StatusCode::OK);
+
+    let (s, r) = send(&app, post("/api/tool/get_health_samples", Some(TOKEN), json!({ "kind": "audio_exposure_event", "days": 4000 }))).await;
+    assert_eq!(s, StatusCode::OK, "{r}");
+    assert_eq!(r["samples"][0]["uuid"], "a1", "a row older than 365 days is in a 4000-day window: {r}");
 }

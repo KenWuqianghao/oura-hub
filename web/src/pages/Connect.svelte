@@ -2,6 +2,8 @@
   import { renderSVG } from 'uqr'
   import { Copy, Check, Eye, EyeOff } from 'lucide-svelte'
   import { hub } from '../lib/store.svelte'
+  import PageHeader from '../components/PageHeader.svelte'
+  import { t } from '../lib/i18n.svelte'
 
   // The address the phone and the agent use. It is this page's address unless the
   // user opened the hub on the server itself (localhost), where it must be edited.
@@ -44,8 +46,8 @@
   <div class="field">
     <div class="small sub">{label}</div>
     <div class="code-row">
-      <pre class="num">{masked(text)}</pre>
-      <button class="btn quiet" title="Copy" onclick={() => copy(id, text)}>
+      <pre class="code">{masked(text)}</pre>
+      <button class="btn quiet icon" title={t(copied === id ? 'connect.copied' : 'connect.copy')} aria-label={t('connect.copy')} onclick={() => copy(id, text)}>
         {#if copied === id}<Check size={16} />{:else}<Copy size={16} />{/if}
       </button>
     </div>
@@ -53,51 +55,51 @@
 {/snippet}
 
 <div class="wrap">
-  <div class="section"><h1>Connect</h1><p class="sub">Link your iPhone and your AI agent to this hub.</p></div>
+  <PageHeader title={t('shell.connect')} sub={t('connect.sub')} />
 
   <div class="section stack" style="gap: 8px">
-    <div class="eyebrow">Hub address that your phone and your agent use</div>
-    <input class="input" bind:value={base} spellcheck="false" autocomplete="off" />
-    {#if local}<div class="error">This is the server's own address. Enter the address your phone uses, for example <span class="num">https://myserver.tailnet.ts.net</span>.</div>{/if}
-    {#if plainHttp}<div class="error">The iPhone accepts plain <span class="num">http://</span> only for Tailscale names (<span class="num">*.ts.net</span>). Use an <span class="num">https://</span> address.</div>{/if}
+    <label class="eyebrow" for="hub-address">{t('connect.address_label')}</label>
+    <input id="hub-address" class="input code" bind:value={base} spellcheck="false" autocomplete="off" />
+    {#if local}<div class="error">{@html t('connect.local_error')}</div>{/if}
+    {#if plainHttp}<div class="error">{@html t('connect.http_error')}</div>{/if}
   </div>
 
   <div class="section cols cols-1-2">
     <div>
-      <div class="eyebrow">iPhone</div>
+      <div class="eyebrow">{t('connect.iphone')}</div>
       {#if qr}<div class="qr">{@html qr}</div>{/if}
       <ol class="steps">
-        <li>Install Open Oura on the iPhone and pair your ring.</li>
-        <li>Open the Camera app and point it at this code.</li>
-        <li>Tap <b>Open in Open Oura</b>, then <b>Connect</b>.</li>
+        <li>{t('connect.step_1')}</li>
+        <li>{t('connect.step_2')}</li>
+        <li>{@html t('connect.step_3')}</li>
       </ol>
-      <p class="small sub">The app then sends the ring data after every sync. Turn on <b>Include Apple Health data</b> in Settings → Health hub to add the Apple Watch.</p>
+      <p class="small sub">{@html t('connect.after')}</p>
     </div>
     <div class="stack">
-      <div class="eyebrow">AI agent (MCP)
+      <div class="eyebrow">{t('connect.agent')}
         <span class="spacer"></span>
         <button class="btn quiet" onclick={() => reveal = !reveal}>
-          {#if reveal}<EyeOff size={14} /> Hide token{:else}<Eye size={14} /> Show token{/if}
+          {#if reveal}<EyeOff size={14} /> {t('connect.hide_token')}{:else}<Eye size={14} /> {t('connect.show_token')}{/if}
         </button>
       </div>
-      {@render field('mcp', 'MCP address (Streamable HTTP, the token is in the path)', mcp)}
+      {@render field('mcp', t('connect.mcp_label'), mcp)}
       {@render field('claude', 'Claude Code', claudeCmd)}
-      {@render field('json', 'Cursor and other clients (mcpServers)', json)}
-      <p class="small sub">Claude Desktop and claude.ai: Settings → Connectors → Add custom connector, then paste the MCP address. A hosted agent needs a public <span class="num">https://</span> address (Tailscale Funnel). Ask it: “Call get_status_now and plan my day.”</p>
+      {@render field('json', t('connect.cursor_label'), json)}
+      <p class="small sub">{@html t('connect.agent_note')}</p>
     </div>
   </div>
 
   <div class="section">
-    <div class="eyebrow">Mac (command line)</div>
-    {@render field('push', 'Push a summary from a Mac that syncs the ring with the oura CLI', pushCmd)}
+    <div class="eyebrow">{t('connect.mac')}</div>
+    {@render field('push', t('connect.push_label'), pushCmd)}
   </div>
 </div>
 
 <style>
-  .qr { background: #fff; border-radius: 10px; padding: 12px; width: min(240px, 100%); margin-bottom: 16px; }
+  .qr { background: #fff; border-radius: 12px; padding: 12px; width: min(240px, 100%); margin-bottom: 16px; }
   .qr :global(svg) { display: block; width: 100%; height: auto; }
   .steps { margin: 0 0 12px; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; }
   .field { display: flex; flex-direction: column; gap: 6px; }
   .code-row { display: flex; gap: 8px; align-items: flex-start; }
-  .code-row pre { flex: 1; margin: 0; padding: 10px 12px; border-radius: 8px; border: 1px solid var(--rule); background: var(--surface); font-size: 13px; white-space: pre-wrap; word-break: break-all; min-width: 0; }
+  .code-row pre { flex: 1; margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--surface); font-size: 13px; white-space: pre-wrap; word-break: break-all; min-width: 0; }
 </style>

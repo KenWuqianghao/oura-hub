@@ -9,6 +9,7 @@
 
 pub mod agent;
 pub mod health;
+pub mod kinds;
 pub mod mcp;
 pub mod store;
 pub mod web;
@@ -72,6 +73,106 @@ fn unauthorized() -> Response {
     (StatusCode::UNAUTHORIZED, Json(json!({ "error": "unauthorized" }))).into_response()
 }
 
+const MAX_DAILY_KINDS: usize = 60;
+const MAX_WINDOW_DAYS: i64 = 4000;
+const MAX_WORKOUTS: u64 = 2000;
+
+fn window_days(args: &Value) -> i64 {
+    args["days"].as_i64().unwrap_or(30).clamp(1, MAX_WINDOW_DAYS)
+}
+
+fn parse_ymd(text: &str) -> Option<i64> {
+    let mut parts = text.splitn(3, '-');
+    let y: i64 = parts.next()?.parse().ok()?;
+    let m: u32 = parts.next()?.parse().ok()?;
+    let d: u32 = parts.next()?.parse().ok()?;
+    let day = oura_summary::days_from_civil(y, m, d);
+    (oura_summary::civil(day) == (y, m, d)).then_some(day)
+}
+
+/// The local days a per-day tool covers, as days since 1970-01-01, both inclusive.
+struct DayWindow {
+    tz_s: i64,
+    first: i64,
+    last: i64,
+}
+
+impl DayWindow {
+    /// `start_ymd` with an optional `end_ymd`, or `days` that end today. The offset
+    /// is the argument, or the one of the last ring summary: these tools work with
+    /// no summary at all, so then it is 0.
+    fn from_args(store: &Store, args: &Value, now: i64) -> Result<Self, String> {
+        let tz_s = match args["tz_offset_s"].as_i64() {
+            Some(tz) => tz.clamp(-18 * 3600, 18 * 3600),
+            None => store.latest_tz_s().map_err(|e| format!("store error: {e}"))?,
+        };
+        let today = (now + tz_s).div_euclid(86400);
+        let ymd = |key: &str| -> Result<Option<i64>, String> {
+            match &args[key] {
+                Value::Null => Ok(None),
+                v => v.as_str().and_then(parse_ymd).map(Some).ok_or_else(|| format!("{key} must be a date as YYYY-MM-DD")),
+            }
+        };
+        let (first, last) = match ymd("start_ymd")? {
+            Some(first) => (first, ymd("end_ymd")?.unwrap_or(today)),
+            None => (today - window_days(args) + 1, today),
+        };
+        if last < first {
+            return Err("end_ymd is before start_ymd".into());
+        }
+        // The store takes the day of a row with a cast that is right only for a positive local time.
+        Ok(Self { tz_s, first: first.max(1), last: last.max(1) })
+    }
+
+    /// The unix range of row starts, `[lo, hi)`. `shift_s` moves the day boundary
+    /// earlier: sleep cuts its days at 18:00.
+    fn unix_range(&self, shift_s: i64) -> (f64, f64) {
+        let lo = self.first * 86400 - self.tz_s - shift_s;
+        let hi = (self.last + 1) * 86400 - self.tz_s - shift_s;
+        (lo as f64, hi as f64)
+    }
+
+    fn json(&self) -> Value {
+        json!({ "tz_offset_s": self.tz_s, "start_ymd": health::ymd_of_day(self.first), "end_ymd": health::ymd_of_day(self.last) })
+    }
+}
+
+fn health_daily(store: &Store, args: &Value, now: i64) -> Result<Value, String> {
+    let kinds: Vec<&str> = args["kinds"]
+        .as_array()
+        .and_then(|ks| ks.iter().map(Value::as_str).collect())
+        .ok_or("kinds is required: an array of kind names")?;
+    if kinds.is_empty() || kinds.len() > MAX_DAILY_KINDS {
+        return Err(format!("kinds takes 1 to {MAX_DAILY_KINDS} names"));
+    }
+    let window = DayWindow::from_args(store, args, now)?;
+    let (lo, hi) = window.unix_range(0);
+    let store_err = |e: anyhow::Error| format!("store error: {e}");
+    let mut out = window.json();
+    out["kinds"] = kinds
+        .iter()
+        .map(|kind| {
+            let (unit, has_values) = match kinds::lookup(kind) {
+                Some(_) => (None, false),
+                None => store.health_kind_shape(kind).map_err(store_err)?,
+            };
+            let def = kinds::def(kind, unit.as_deref(), has_values);
+            let days = store.health_daily(&def, lo, hi, window.tz_s).map_err(store_err)?;
+            Ok(health::daily_json(&def, &days))
+        })
+        .collect::<Result<Value, String>>()?;
+    Ok(out)
+}
+
+fn health_sleep(store: &Store, args: &Value, now: i64) -> Result<Value, String> {
+    let window = DayWindow::from_args(store, args, now)?;
+    let (lo, hi) = window.unix_range(health::SLEEP_DAY_SHIFT_S);
+    let slices = store.health_sleep_slices(lo, hi, window.tz_s).map_err(|e| format!("store error: {e}"))?;
+    let mut out = window.json();
+    out["nights"] = json!(health::sleep_nights(&slices));
+    Ok(out)
+}
+
 /// The MCP tool table over the latest snapshot.
 pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
     let metrics: Vec<&str> = oura_summary::agent::TREND_METRICS.iter().map(|(m, _)| *m).collect();
@@ -103,19 +204,50 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
         },
         Tool {
             name: "list_health_kinds",
-            description: "The Apple Health kinds this hub holds: for each kind the number of samples and the end time of the newest one. Use a kind from this list with get_health_samples.",
+            description: "The Apple Health kinds this hub holds: for each kind the number of samples, the start of the oldest one and the end of the newest one, and how get_health_daily folds it into a day (`agg`: sum, mean, last, count, minutes) in which `unit`. Use a kind from this list with get_health_daily or get_health_samples.",
             input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
         },
         Tool {
             name: "get_health_samples",
-            description: "Raw Apple Health samples of one kind, newest first. The phone sends every Apple Health quantity and category type plus ECG, from every source but the ring app itself. Call list_health_kinds for the kinds this hub holds. Named kinds: heart_rate, resting_heart_rate, hrv_sdnn, walking_heart_rate_average, vo2_max, step_count, active_energy, basal_energy, exercise_time, stand_time, stand_hour, distance_walking_running, respiratory_rate, oxygen_saturation, wrist_temperature, sleep_analysis, workout. Every other kind is the HealthKit name in snake_case: body_mass (kg), body_fat_percentage, blood_pressure_systolic and blood_pressure_diastolic (mmHg), blood_glucose (mg/dL), dietary_energy_consumed (kcal), dietary_protein (g), dietary_water (L), mindful_session, time_in_daylight (s), electrocardiogram. A row has `value` and `unit` for a quantity and `category` for a category. Either `days` back from now, or an explicit `start_unix`/`end_unix` window.",
+            description: "Raw Apple Health samples of one kind, newest first, in the units the phone sent (a fraction for a percentage, grams for every nutrient). Use it for the detail inside a day or two: the heart rate curve of one workout, the stages of one night. For anything longer use get_health_daily (one value per day, any kind, years in one call), get_health_sleep (nights), or get_workouts; this tool stops at `limit` rows and heart_rate alone has hundreds per day. Call list_health_kinds for the kinds this hub holds. A row has `value` and `unit` for a quantity and `category` for a category (sleep_analysis, stand_hour, mindful_session); workout and electrocardiogram have both. Either `days` back from now, or an explicit `start_unix`/`end_unix` window.",
             input_schema: json!({ "type": "object", "properties": {
                 "kind": { "type": "string", "description": "Which kind to return; see list_health_kinds." },
-                "days": { "type": "integer", "minimum": 1, "maximum": 365, "default": 7 },
+                "days": { "type": "integer", "minimum": 1, "maximum": MAX_WINDOW_DAYS, "default": 7, "description": "How many days back from now; a kind with no recent rows needs a long window." },
                 "start_unix": { "type": "number", "description": "Window start (unix seconds); overrides days." },
                 "end_unix": { "type": "number", "description": "Window end (unix seconds); default now." },
                 "limit": { "type": "integer", "minimum": 1, "maximum": 20000, "default": 500 }
             }, "required": ["kind"], "additionalProperties": false }),
+        },
+        Tool {
+            name: "get_health_daily",
+            description: "Apple Health per day, aggregated on the hub: one value per local day for each kind, oldest first, only days with data. Use this for every trend, total, or comparison over more than a day or two; it covers years in one call. Each kind follows its own rule, returned as `agg`: `sum` is the day total from the best single source (steps, energy, distance, every dietary_* nutrient; iPhone and Watch are not added together), `mean` is the mean of the day with `min` and `max` (heart_rate, hrv_sdnn, respiratory_rate, oxygen_saturation), `last` is the last reading of the day with `min` and `max` (body_mass, vo2_max, resting_heart_rate), `count` counts rows (stand_hour counts the hours stood), `minutes` adds row lengths (mindful_session). Values come in the display `unit` returned with the kind, not the stored one: % for fractions, mg or µg for minerals and vitamins, mL for water, min for daylight. `n` is the number of rows behind the value. For sleep stages per night use get_health_sleep; for single workouts use get_workouts. Either `days` back from today, or `start_ymd` with an optional `end_ymd`.",
+            input_schema: json!({ "type": "object", "properties": {
+                "kinds": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": MAX_DAILY_KINDS, "description": "Which kinds to return; see list_health_kinds." },
+                "days": { "type": "integer", "minimum": 1, "maximum": MAX_WINDOW_DAYS, "default": 30, "description": "How many days to return; the window ends today." },
+                "start_ymd": { "type": "string", "description": "First day, YYYY-MM-DD; overrides days." },
+                "end_ymd": { "type": "string", "description": "Last day, YYYY-MM-DD, inclusive; default today." },
+                "tz_offset_s": { "type": "integer", "description": "Seconds east of UTC that set the day boundary; default the offset of the last ring summary." }
+            }, "required": ["kinds"], "additionalProperties": false }),
+        },
+        Tool {
+            name: "get_health_sleep",
+            description: "Apple Health sleep per night, oldest first, from every source that wrote sleep (Apple Watch, the Oura app, other trackers), back to the first night on record. get_sleep has more detail but only the recent ring nights; use this one for long ranges and for nights the ring did not record. `ymd` is the day the night ends on: a segment belongs to the night of its local start time plus six hours. Per night the source with the most time asleep gives the row: `source`, `start_unix`, `end_unix`, and minutes `in_bed_min`, `asleep_min`, `deep_min`, `core_min`, `rem_min`, `unspecified_min` (asleep with no stage), `awake_min`. `asleep_min` is null when the source logged only time in bed. Either `days` back from today, or `start_ymd` with an optional `end_ymd`.",
+            input_schema: json!({ "type": "object", "properties": {
+                "days": { "type": "integer", "minimum": 1, "maximum": MAX_WINDOW_DAYS, "default": 30, "description": "How many nights back from today." },
+                "start_ymd": { "type": "string", "description": "First wake day, YYYY-MM-DD; overrides days." },
+                "end_ymd": { "type": "string", "description": "Last wake day, YYYY-MM-DD, inclusive; default today." },
+                "tz_offset_s": { "type": "integer", "description": "Seconds east of UTC that set the day boundary; default the offset of the last ring summary." }
+            }, "additionalProperties": false }),
+        },
+        Tool {
+            name: "get_workouts",
+            description: "Apple Health workouts, newest first: `activity`, `start_unix`, `end_unix`, `duration_min`, `kcal`, `distance_m`, `hr_avg` and `hr_max` (from the heart rate samples inside the workout; null when there are none), `source`, and `user_entered` (typed in by hand, not measured). Rows are as recorded: a third-party app can write a workout that is many hours long. Either `days` back from now, or an explicit `start_unix`/`end_unix` window on the workout start.",
+            input_schema: json!({ "type": "object", "properties": {
+                "days": { "type": "integer", "minimum": 1, "maximum": MAX_WINDOW_DAYS, "default": 30 },
+                "start_unix": { "type": "number", "description": "Window start (unix seconds); overrides days." },
+                "end_unix": { "type": "number", "description": "Window end (unix seconds); default now." },
+                "limit": { "type": "integer", "minimum": 1, "maximum": MAX_WORKOUTS, "default": 200 }
+            }, "additionalProperties": false }),
         },
         Tool {
             name: "get_activity",
@@ -150,14 +282,33 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
         }
         if name == "list_health_kinds" {
             let kinds = store_for_handler.health_kinds().map_err(|e| format!("store error: {e}"))?;
-            return Ok(json!({ "count": kinds.len(), "kinds": kinds.iter().map(|(kind, samples, newest)| {
-                json!({ "kind": kind, "samples": samples, "newest_end_unix": *newest as i64 })
+            return Ok(json!({ "count": kinds.len(), "kinds": kinds.iter().map(|k| {
+                let def = kinds::def(&k.kind, k.unit.as_deref(), k.has_values);
+                json!({
+                    "kind": k.kind, "samples": k.samples,
+                    "first_start_unix": k.first_start_unix.map(|t| t as i64), "newest_end_unix": k.newest_end_unix as i64,
+                    "agg": def.agg.as_str(), "unit": def.unit,
+                })
             }).collect::<Vec<_>>() }));
+        }
+        if name == "get_health_daily" {
+            return health_daily(&store_for_handler, args, now);
+        }
+        if name == "get_health_sleep" {
+            return health_sleep(&store_for_handler, args, now);
+        }
+        if name == "get_workouts" {
+            let limit = args["limit"].as_u64().unwrap_or(200).clamp(1, MAX_WORKOUTS) as usize;
+            let start = args["start_unix"].as_f64().unwrap_or((now - window_days(args) * 86400) as f64);
+            let end = args["end_unix"].as_f64().unwrap_or(now as f64);
+            let workouts = store_for_handler.health_workouts(start, end, limit).map_err(|e| format!("store error: {e}"))?;
+            return Ok(json!({ "count": workouts.len(), "workouts": workouts.iter().map(health::workout_with_hr_json).collect::<Vec<_>>() }));
         }
         if name == "get_health_samples" {
             let kind = args["kind"].as_str().ok_or("kind is required")?;
             let limit = args["limit"].as_u64().unwrap_or(500).clamp(1, 20000) as usize;
-            let start = args["start_unix"].as_f64().unwrap_or(now as f64 - days(7) as f64 * 86400.0);
+            let back = args["days"].as_i64().unwrap_or(7).clamp(1, MAX_WINDOW_DAYS);
+            let start = args["start_unix"].as_f64().unwrap_or((now - back * 86400) as f64);
             let end = args["end_unix"].as_f64();
             let rows = store_for_handler
                 .health_rows_between(Some(kind), start, end, limit)
@@ -251,8 +402,11 @@ async fn health(State(st): State<Arc<AppState>>, headers: HeaderMap) -> Response
             "max_event_id": ring_ids.0,
             "max_reading_id": ring_ids.1,
         },
-        "health": st.store.health_kinds().unwrap_or_default().iter().map(|(k, n, newest)| {
-            json!({ "kind": k, "count": n, "newest_end_unix": *newest as i64 })
+        "health": st.store.health_kinds().unwrap_or_default().iter().map(|k| {
+            json!({
+                "kind": k.kind, "count": k.samples,
+                "first_start_unix": k.first_start_unix.map(|t| t as i64), "newest_end_unix": k.newest_end_unix as i64,
+            })
         }).collect::<Vec<_>>(),
     }))
     .into_response()

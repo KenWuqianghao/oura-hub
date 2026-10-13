@@ -29,9 +29,48 @@ export const api = {
   session: () => request<{ ok: boolean; name: string; version: string }>('/api/session'),
   health: () => request<HealthInfo>('/health'),
   summary: () => request<{ received_at: number; generated_at: number | null; body: Summary }>('/api/summary'),
-  tool: <T = any>(name: string, args: Record<string, unknown> = {}) =>
+  tool: <T = any>(name: string, args: object = {}) =>
     request<T>(`/api/tool/${name}`, { method: 'POST', body: JSON.stringify(args) }),
+  healthDaily: (args: Omit<HealthDailyArgs, 'tz_offset_s'>) => api.tool<HealthDaily>('get_health_daily', { ...args, tz_offset_s: tzOffsetS() }),
+  healthSleep: (args: DayWindow = {}) => api.tool<HealthSleep>('get_health_sleep', { ...args, tz_offset_s: tzOffsetS() }),
+  workouts: (args: WorkoutsArgs = {}) => api.tool<Workouts>('get_workouts', args),
+  healthKinds: () => api.tool<HealthKinds>('list_health_kinds'),
+  /** The names of the tools the hub gives an agent, from the MCP endpoint itself. */
+  toolNames: async () => (await request<{ result: { tools: { name: string }[] } }>('/mcp', { method: 'POST', body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) })).result.tools.map(t => t.name),
 }
+
+/** The browser's offset from UTC in seconds. It sets where a day starts and ends on the hub. */
+const tzOffsetS = () => -new Date().getTimezoneOffset() * 60
+
+// ── the Apple Health aggregate tools (docs/health-hub.md) ──
+/** How the hub made a day value. `sum`, `count`, and `minutes` add up over a day; `mean` and `last` do not. */
+export type Agg = 'sum' | 'mean' | 'last' | 'count' | 'minutes'
+/** `days` counts back from today (today is day 1), or give the two ends as yyyy-mm-dd. */
+export interface DayWindow { days?: number; start_ymd?: string; end_ymd?: string }
+export interface HealthDailyArgs extends DayWindow { kinds: string[]; tz_offset_s?: number }
+/** One day of one kind. `min` and `max` come with `mean` and `last` kinds only. `n` is the number of rows. */
+export interface DayPoint { ymd: string; value: number; min?: number; max?: number; n: number }
+export interface DailySeries { kind: string; agg: Agg; unit: string; days: DayPoint[] }
+/** Kinds come back in the order of the request; `days` holds only days with data, oldest first. */
+export interface HealthDaily { tz_offset_s: number; start_ymd: string; end_ymd: string; kinds: DailySeries[] }
+
+/** One night from Apple Health. `ymd` is the wake day. Minutes have one decimal. `asleep_min` is null when the source wrote only time in bed. */
+export interface SleepNight {
+  ymd: string; source: string; start_unix: number; end_unix: number
+  in_bed_min: number; asleep_min: number | null; deep_min: number; core_min: number; rem_min: number; unspecified_min: number; awake_min: number
+}
+export interface HealthSleep { tz_offset_s: number; start_ymd: string; end_ymd: string; nights: SleepNight[] }
+
+export interface WorkoutsArgs { days?: number; start_unix?: number; end_unix?: number; limit?: number }
+export interface HealthWorkout {
+  activity: string; start_unix: number; end_unix: number; duration_min: number | null; kcal: number | null; distance_m: number | null
+  hr_avg: number | null; hr_max: number | null; source: string; user_entered: boolean
+}
+/** Newest first. */
+export interface Workouts { count: number; workouts: HealthWorkout[] }
+
+export interface HealthKind { kind: string; samples: number; first_start_unix: number | null; newest_end_unix: number; agg: Agg; unit: string }
+export interface HealthKinds { count: number; kinds: HealthKind[] }
 
 // ── the summary JSON (the same contract the iOS app and the web dashboard render) ──
 export interface Trend { series: number[]; latest: number | null; baseline: number | null; delta_pct: number | null }
@@ -48,7 +87,8 @@ export interface Night {
 export interface DailyStat { active_kcal?: number; total_kcal?: number; steps?: number; distance_m?: number }
 export interface SleepDebt { debt_min: number; recent_shortfall_min: number; valid: boolean; need_h: number; valid_days: number; window_days: number; state: string; days?: any[] }
 export interface Illness { available: boolean; status: string; traffic_light: string; score?: number; date?: string; days_with_data?: number; biomarkers?: any[] }
-export interface Score { score: number; provisional?: boolean; contributors?: any; [k: string]: any }
+export interface Contributor { key: string; name: string; weight: number; score: number; value?: number | null; unit?: string; source?: string }
+export interface Score { score: number; provisional?: boolean; contributors?: Contributor[]; basis?: string }
 export interface Workout { start: string; end: string; durationMin: number; label: string; isWorkout: number }
 export interface Device { serial?: string; firmware?: string; battery_pct?: number | null; days_of_data?: number; nights?: number; synced?: string; synced_hm?: string; fresh_hours?: number }
 export interface Summary {
@@ -71,13 +111,13 @@ export interface Watch {
   hrv_sdnn?: { latest: WatchLatest | null; mean_7d_ms: number | null }; vo2_max?: WatchLatest | null
   respiratory_rate?: WatchLatest | null; oxygen_saturation?: WatchLatest | null; wrist_temperature?: WatchLatest | null
   last_sleep?: { source?: string; start_unix: number; end_unix: number; in_bed_min: number; asleep_min: number; deep_min: number; core_min: number; rem_min: number; awake_min: number } | null
-  workouts_48h?: { activity: string; start_unix: number; end_unix: number; duration_min: number | null; kcal: number | null; distance_m: number | null; source?: string }[]
+  workouts_48h?: { activity: string; start_unix: number; end_unix: number; duration_min: number | null; kcal: number | null; distance_m: number | null; source?: string; user_entered?: boolean }[]
 }
 
 export interface HealthInfo {
   ok: boolean; snapshots?: number; latest_received_at?: number | null; latest_generated_at?: number | null
   ring?: { serials: string[]; max_event_id: number; max_reading_id: number }
-  health?: { kind: string; count: number; newest_end_unix: number }[]
+  health?: { kind: string; count: number; first_start_unix: number | null; newest_end_unix: number }[]
 }
 
 export interface TrendPoint { ymd: string; value: number }
