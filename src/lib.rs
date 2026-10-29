@@ -8,9 +8,11 @@
 //! the rows back. The process holds no state outside the two files.
 
 pub mod agent;
+pub mod analysis;
 pub mod health;
 pub mod kinds;
 pub mod mcp;
+pub mod stats;
 pub mod store;
 pub mod web;
 
@@ -98,15 +100,28 @@ struct DayWindow {
 }
 
 impl DayWindow {
+    fn tz_from_args(store: &Store, args: &Value) -> Result<i64, String> {
+        match args["tz_offset_s"].as_i64() {
+            Some(tz) => Ok(tz.clamp(-18 * 3600, 18 * 3600)),
+            None => store.latest_tz_s().map_err(|e| format!("store error: {e}")),
+        }
+    }
+
+    fn today(tz_s: i64, now: i64) -> i64 {
+        (now + tz_s).div_euclid(86400)
+    }
+
+    fn new(tz_s: i64, first: i64, last: i64) -> Self {
+        // The store takes the day of a row with a cast that is right only for a positive local time.
+        Self { tz_s, first: first.max(1), last: last.max(1) }
+    }
+
     /// `start_ymd` with an optional `end_ymd`, or `days` that end today. The offset
     /// is the argument, or the one of the last ring summary: these tools work with
     /// no summary at all, so then it is 0.
     fn from_args(store: &Store, args: &Value, now: i64) -> Result<Self, String> {
-        let tz_s = match args["tz_offset_s"].as_i64() {
-            Some(tz) => tz.clamp(-18 * 3600, 18 * 3600),
-            None => store.latest_tz_s().map_err(|e| format!("store error: {e}"))?,
-        };
-        let today = (now + tz_s).div_euclid(86400);
+        let tz_s = Self::tz_from_args(store, args)?;
+        let today = Self::today(tz_s, now);
         let ymd = |key: &str| -> Result<Option<i64>, String> {
             match &args[key] {
                 Value::Null => Ok(None),
@@ -120,8 +135,7 @@ impl DayWindow {
         if last < first {
             return Err("end_ymd is before start_ymd".into());
         }
-        // The store takes the day of a row with a cast that is right only for a positive local time.
-        Ok(Self { tz_s, first: first.max(1), last: last.max(1) })
+        Ok(Self::new(tz_s, first, last))
     }
 
     /// The unix range of row starts, `[lo, hi)`. `shift_s` moves the day boundary
@@ -256,6 +270,28 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
                 "days": { "type": "integer", "minimum": 1, "maximum": 90, "default": 7 }
             }, "additionalProperties": false }),
         },
+        Tool {
+            name: "get_baseline",
+            description: "Compares the last days with the user's own baseline, computed on the hub. Quote its numbers; never compute a mean, a deviation or a percent yourself. Each series name has one source prefix and gives one value per local day: `ring:<metric>` (a metric of get_trends, see its `metric` list; the ring's main sleep period: of the periods that end on one day the longest, and the day is missing when it lacks the metric), `health:<kind>` (an Apple Health kind of list_health_kinds, folded into a day as get_health_daily does, in the same unit; for sleep use sleep:<field>), `sleep:<field>` (an Apple Health night of get_health_sleep, naps of the same source included; field is one of asleep_min, in_bed_min, deep_min, core_min, rem_min, awake_min; a night from a source without stages has no deep, core, rem or awake value). A night is on the local day it ends on. Ring HRV is RMSSD and `health:hrv_sdnn` is SDNN: do not compare their values. Ring days are in the ring summary's time zone; `tz_offset_s` moves only the Apple Health days. A day with no data is missing, never zero; for a logged kind (dietary_*, mindful_session) only the logged days count. A day total (`day_total` true: steps, energy, distances, dietary_*, counts, minutes) leaves out today, because today is not over. The windows are whole local days that end on `end_ymd` (default today; yesterday for a day total): `recent` is the last `recent_days` days and `baseline` is the `baseline_days` days before it, with no overlap. Per series it returns `series`, `source` (ring or apple_health), `unit`, `day_total`, `recent` and `baseline` ({start_ymd, end_ymd, n, mean}; baseline also `missing_days` and `sd`, the sample SD of one day), `delta` (recent mean minus baseline mean), `delta_pct` (delta in percent of the baseline mean), `z` (delta in standard errors of the difference of the two means: delta / (sd * sqrt(1/R + 1/B)), where R and B are the recent and baseline days counted as fewer independent days by the baseline's lag-1 autocorrelation ρ, max(n (1 - ρ) / (1 + ρ), 1), with ρ held between 0 and 0.9), `band`, and `latest_ymd` (the newest day with data in the windows, null if none, so a stale source shows). `band` is `not_enough_data` when baseline n is under 14 or recent n is 0 (delta, delta_pct and z are null), `no_spread` when the baseline SD is 0 (z is null), else by |z|: `usual` under 1, `notable` from 1 to under 2, `unusual` from 2.",
+            input_schema: json!({ "type": "object", "properties": {
+                "series": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": analysis::MAX_SERIES, "description": "Series names such as ring:hrv_ms, ring:rhr, health:resting_heart_rate, sleep:asleep_min." },
+                "recent_days": { "type": "integer", "minimum": 1, "maximum": analysis::MAX_RECENT_DAYS, "default": 1, "description": "Days in the recent window, ending on end_ymd." },
+                "baseline_days": { "type": "integer", "minimum": 14, "maximum": analysis::MAX_BASELINE_DAYS, "default": 28, "description": "Days in the baseline window, just before the recent window." },
+                "end_ymd": { "type": "string", "description": "Last day of the recent window, YYYY-MM-DD; default today, and yesterday for a day total." },
+                "tz_offset_s": { "type": "integer", "description": "Seconds east of UTC that set the day boundary; default the offset of the last ring summary." }
+            }, "required": ["series"], "additionalProperties": false }),
+        },
+        Tool {
+            name: "get_correlation",
+            description: "Tests whether two series move together, computed on the hub: Pearson r with a 95% confidence interval by the Fisher z transform on an effective number of days. Quote its numbers; never compute r yourself. `x` and `y` are series names. Each series name has one source prefix and gives one value per local day: `ring:<metric>` (a metric of get_trends, see its `metric` list; the ring's main sleep period: of the periods that end on one day the longest, and the day is missing when it lacks the metric), `health:<kind>` (an Apple Health kind of list_health_kinds, folded into a day as get_health_daily does, in the same unit; for sleep use sleep:<field>), `sleep:<field>` (an Apple Health night of get_health_sleep, naps of the same source included; field is one of asleep_min, in_bed_min, deep_min, core_min, rem_min, awake_min; a night from a source without stages has no deep, core, rem or awake value). A night is on the local day it ends on. Ring HRV is RMSSD and `health:hrv_sdnn` is SDNN: do not compare their values. Ring days are in the ring summary's time zone; `tz_offset_s` moves only the Apple Health days. A day with no data is missing, never zero; for a logged kind (dietary_*, mindful_session) only the logged days count. A day total (`day_total` true: steps, energy, distances, dietary_*, counts, minutes) leaves out today, because today is not over. The window is the last `days` whole local days, ending today. `lag_days` pairs x on day d with y on day d + lag_days: a late workout on day d against the night that ends on d + 1 is lag_days 1. Only days where both values exist are paired. It returns `x` and `y` ({series, source, unit, day_total}), `lag_days`, the window `start_ymd` and `end_ymd`, `n` (paired days), `n_eff` (n shrunk for the day-to-day carry-over of both series, by Bartlett's rule from their lag-1 autocorrelations: two slow trends share many days that are not independent), `r`, `ci95` ([low, high], from n_eff), `evidence` and `note`. `evidence` is `D` when n is under 10 (r and ci95 are null and the note says how many more paired days are needed), when a series has the same value on every paired day, or when n_eff is 3 or less (r and ci95 are null in every D case); `A` (a clear link) when n_eff is at least 30, the interval excludes 0 and |r| is at least 0.3; `B` (a link, but small or from few independent days) when the interval excludes 0; else `C` (no reliable link). Each extra lag or pair you try can give a B by chance. A correlation is not a cause.",
+            input_schema: json!({ "type": "object", "properties": {
+                "x": { "type": "string", "description": "First series, such as health:step_count." },
+                "y": { "type": "string", "description": "Second series, such as ring:hrv_ms." },
+                "days": { "type": "integer", "minimum": 14, "maximum": MAX_WINDOW_DAYS, "default": 90, "description": "How many days back from today." },
+                "lag_days": { "type": "integer", "minimum": 0, "maximum": analysis::MAX_LAG_DAYS, "default": 0, "description": "Pair x on day d with y on day d + lag_days." },
+                "tz_offset_s": { "type": "integer", "description": "Seconds east of UTC that set the day boundary; default the offset of the last ring summary." }
+            }, "required": ["x", "y"], "additionalProperties": false }),
+        },
     ];
     let handler: mcp::Handler = Arc::new(move |name, args| {
         let days = |default: u64| args["days"].as_u64().unwrap_or(default).clamp(1, 365) as usize;
@@ -296,6 +332,12 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
         }
         if name == "get_health_sleep" {
             return health_sleep(&store_for_handler, args, now);
+        }
+        if name == "get_baseline" {
+            return analysis::baseline(&store_for_handler, args, now);
+        }
+        if name == "get_correlation" {
+            return analysis::correlation(&store_for_handler, args, now);
         }
         if name == "get_workouts" {
             let limit = args["limit"].as_u64().unwrap_or(200).clamp(1, MAX_WORKOUTS) as usize;
@@ -353,7 +395,7 @@ pub fn app_state_with_agent(store: Store, ring: oura_store::Store, token: String
         mcp: Server {
             name: "oura-hub",
             version: env!("CARGO_PKG_VERSION"),
-            instructions: "Personal health data from an Oura ring. Start with get_status_now. Values carry a freshness block: ring data is as of the last sync, not live.",
+            instructions: agent::RULES,
             tools,
             handler,
         },

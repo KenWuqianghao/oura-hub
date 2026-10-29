@@ -237,6 +237,11 @@ impl Store {
         Ok(rows)
     }
 
+    pub fn health_has_kind(&self, kind: &str) -> Result<bool> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.query_row(&format!("SELECT 1 {NEWEST_ROW} ?1 LIMIT 1"), params![kind], |_| Ok(())).optional()?.is_some())
+    }
+
     /// The unit and whether there is a value on the newest row of one kind: what
     /// `kinds::def` needs for a kind its table does not name. `(None, false)` for a
     /// kind with no rows.

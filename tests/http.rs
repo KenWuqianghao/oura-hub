@@ -108,7 +108,7 @@ async fn ingest_then_health_then_tools() {
 
     let (_, r) = send(&app, post(&uri, None, rpc(2, "tools/list", json!({})))).await;
     let names: Vec<&str> = r["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-    assert_eq!(names, ["get_status_now", "get_sleep", "get_trends", "get_watch", "list_health_kinds", "get_health_samples", "get_health_daily", "get_health_sleep", "get_workouts", "get_activity"]);
+    assert_eq!(names, ["get_status_now", "get_sleep", "get_trends", "get_watch", "list_health_kinds", "get_health_samples", "get_health_daily", "get_health_sleep", "get_workouts", "get_activity", "get_baseline", "get_correlation"]);
 
     let (_, r) = send(&app, post(&uri, None, rpc(3, "tools/call", json!({ "name": "get_status_now", "arguments": {} })))).await;
     assert_eq!(r["result"]["isError"], false, "{r}");
@@ -367,4 +367,106 @@ async fn health_samples_reach_back_past_a_year() {
     let (s, r) = send(&app, post("/api/tool/get_health_samples", Some(TOKEN), json!({ "kind": "audio_exposure_event", "days": 4000 }))).await;
     assert_eq!(s, StatusCode::OK, "{r}");
     assert_eq!(r["samples"][0]["uuid"], "a1", "a row older than 365 days is in a 4000-day window: {r}");
+}
+
+async fn seed_steps_and_nights(app: &axum::Router, skip_days_back: &[i64]) {
+    let today = oura_hub::now_unix() / 86400;
+    let steps_back = |k: i64| 4000.0 + 500.0 * k.rem_euclid(5) as f64;
+    let mut samples = Vec::new();
+    for k in 0..40 {
+        let day = today - k;
+        if !skip_days_back.contains(&k) {
+            let noon = (day * 86400 + 43200) as f64;
+            samples.push(json!({ "uuid": format!("st{k}"), "kind": "step_count", "start_unix": noon, "end_unix": noon + 60.0, "value": steps_back(k), "source_bundle": "watch" }));
+        }
+        if k < 39 {
+            let start = (day * 86400 + 2 * 3600) as f64;
+            let minutes = 300.0 + steps_back(k + 1) / 50.0;
+            samples.push(json!({ "uuid": format!("sl{k}"), "kind": "sleep_analysis", "start_unix": start, "end_unix": start + minutes * 60.0, "category": "asleep_core", "source_bundle": "watch" }));
+        }
+    }
+    let (s, _) = send(app, post("/ingest/health", Some(TOKEN), json!({ "samples": samples }))).await;
+    assert_eq!(s, StatusCode::OK);
+}
+
+async fn call_tool(app: &axum::Router, name: &str, arguments: Value) -> (bool, Value) {
+    let (_, r) = send(app, post(&format!("/mcp/{TOKEN}"), None, rpc(1, "tools/call", json!({ "name": name, "arguments": arguments })))).await;
+    (r["result"]["isError"] == true, r["result"]["structuredContent"].clone())
+}
+
+#[tokio::test]
+async fn get_baseline_compares_recent_days_with_the_days_before() {
+    let app = app();
+    seed_steps_and_nights(&app, &[5, 6]).await;
+    let (_, _) = send(&app, post("/ingest/summary", Some(TOKEN), summary())).await;
+
+    let (err, r) = call_tool(&app, "get_baseline", json!({ "series": ["health:step_count", "ring:hrv_ms"], "tz_offset_s": 0 })).await;
+    assert!(!err, "{r}");
+    let steps = &r["baselines"][0];
+    assert_eq!((steps["series"].as_str(), steps["source"].as_str(), steps["unit"].as_str()), (Some("health:step_count"), Some("apple_health"), Some("steps")));
+    let near = |v: &Value, want: f64| (v.as_f64().unwrap() - want).abs() < 2e-3;
+    assert_eq!(steps["day_total"], true);
+    assert_eq!((steps["baseline"]["n"].as_u64(), steps["baseline"]["missing_days"].as_u64()), (Some(26), Some(2)));
+    assert!(near(&steps["baseline"]["mean"], 5115.385) && near(&steps["baseline"]["sd"], 697.247), "{steps}");
+    assert_eq!((steps["recent"]["n"].as_u64(), steps["recent"]["mean"].as_f64()), (Some(1), Some(4500.0)));
+    assert!(near(&steps["delta"], -615.385) && near(&steps["delta_pct"], -12.03) && near(&steps["z"], -0.864), "{steps}");
+    assert_eq!(steps["band"], "usual");
+    assert_eq!(steps["latest_ymd"], steps["recent"]["end_ymd"]);
+
+    let ring = &r["baselines"][1];
+    assert_eq!((ring["band"].as_str(), ring["recent"]["n"].as_u64(), ring["baseline"]["n"].as_u64()), (Some("not_enough_data"), Some(0), Some(0)));
+    assert_eq!((ring["delta"].clone(), ring["z"].clone(), ring["latest_ymd"].clone()), (Value::Null, Value::Null, Value::Null));
+
+    let two_back = steps["baseline"]["end_ymd"].clone();
+    let (err, r) = call_tool(&app, "get_baseline", json!({ "series": ["health:step_count"], "tz_offset_s": 0, "end_ymd": two_back })).await;
+    assert!(!err, "{r}");
+    let moved = &r["baselines"][0];
+    assert_eq!((&moved["recent"]["start_ymd"], &moved["recent"]["end_ymd"], moved["recent"]["mean"].as_f64()), (&two_back, &two_back, Some(5000.0)));
+    assert!(near(&moved["baseline"]["mean"], 5076.923), "{moved}");
+    let (err, _) = call_tool(&app, "get_baseline", json!({ "series": ["health:step_count"], "end_ymd": "yesterday" })).await;
+    assert!(err, "end_ymd must be a date");
+
+    let (err, _) = call_tool(&app, "get_baseline", json!({ "series": ["hrv_ms"] })).await;
+    assert!(err, "a name without a source prefix is refused");
+    let (err, _) = call_tool(&app, "get_baseline", json!({ "series": ["health:no_such_kind"] })).await;
+    assert!(err, "a kind the hub does not hold is refused, not reported as missing data");
+}
+
+#[tokio::test]
+async fn get_correlation_pairs_x_on_day_d_with_y_on_day_d_plus_lag() {
+    let app = app();
+    seed_steps_and_nights(&app, &[]).await;
+    let (_, _) = send(&app, post("/ingest/summary", Some(TOKEN), summary())).await;
+    let args = |lag: i64| json!({ "x": "health:step_count", "y": "sleep:asleep_min", "days": 60, "lag_days": lag, "tz_offset_s": 0 });
+
+    let (err, r) = call_tool(&app, "get_correlation", args(1)).await;
+    assert!(!err, "{r}");
+    assert_eq!((r["n"].as_u64(), r["evidence"].as_str()), (Some(39), Some("A")), "{r}");
+    assert_eq!(r["r"].as_f64(), Some(1.0));
+    assert_eq!(r["x"]["unit"], "steps");
+    assert_eq!((r["y"]["source"].as_str(), r["y"]["unit"].as_str()), (Some("apple_health"), Some("min")));
+
+    let (_, r) = call_tool(&app, "get_correlation", args(0)).await;
+    assert!(r["r"].as_f64().unwrap().abs() < 0.5, "same-day pairs are not the pairs that were built to agree: {r}");
+
+    let (err, r) = call_tool(&app, "get_correlation", json!({ "x": "ring:hrv_ms", "y": "health:step_count", "tz_offset_s": 0 })).await;
+    assert!(!err);
+    assert_eq!((r["n"].as_u64(), r["evidence"].as_str(), r["r"].clone(), r["ci95"].clone()), (Some(0), Some("D"), Value::Null, Value::Null));
+    assert!(r["note"].as_str().unwrap().contains("10 more"));
+
+    let (err, _) = call_tool(&app, "get_correlation", json!({ "x": "health:step_count", "y": "health:step_count" })).await;
+    assert!(err, "a series against itself at lag 0 is refused");
+}
+
+#[tokio::test]
+async fn a_night_without_stages_is_missing_for_the_stage_fields() {
+    let app = app();
+    let start = ((oura_hub::now_unix() / 86400) * 86400 + 2 * 3600) as f64;
+    let night = json!({ "uuid": "u1", "kind": "sleep_analysis", "start_unix": start, "end_unix": start + 420.0 * 60.0, "category": "asleep_unspecified", "source_bundle": "autosleep" });
+    let (s, _) = send(&app, post("/ingest/health", Some(TOKEN), json!({ "samples": [night] }))).await;
+    assert_eq!(s, StatusCode::OK);
+    let (err, r) = call_tool(&app, "get_baseline", json!({ "series": ["sleep:asleep_min", "sleep:deep_min"], "tz_offset_s": 0 })).await;
+    assert!(!err, "{r}");
+    assert_eq!((r["baselines"][0]["recent"]["n"].as_u64(), r["baselines"][0]["recent"]["mean"].as_f64()), (Some(1), Some(420.0)));
+    assert_eq!(r["baselines"][1]["recent"]["n"].as_u64(), Some(0), "no deep sleep was measured, so it is not 0 min: {r}");
 }
