@@ -112,21 +112,22 @@ fn night_metric(night: &Value, metric: &str) -> Option<f64> {
 }
 
 /// A ring metric per day. Sleep metrics sit on the wake day; of the periods that
-/// end on one day (a nap, a split night) and have the metric, the longest in bed gives the value.
+/// end on one day (a nap, a split night) the longest in bed gives the value, and the
+/// day is missing when that period lacks the metric: a nap never stands in for the night.
 fn ring_points(summary: &Value, metric: &str) -> BTreeMap<i64, f64> {
     if ACTIVITY_METRICS.contains(&metric) {
         let Some(daily) = summary["activity_daily"].as_object() else { return BTreeMap::new() };
         return daily.iter().filter_map(|(ymd, d)| Some((parse_ymd(ymd)?, d[metric].as_f64()?))).collect();
     }
-    let mut longest: BTreeMap<i64, (f64, f64)> = BTreeMap::new();
+    let mut longest: BTreeMap<i64, (f64, &Value)> = BTreeMap::new();
     for night in summary["nights"].as_array().into_iter().flatten() {
-        let (Some(day), Some(value)) = (wake_day(night), night_metric(night, metric)) else { continue };
+        let Some(day) = wake_day(night) else { continue };
         let in_bed = night["in_bed_h"].as_f64().unwrap_or(0.0);
         if longest.get(&day).is_none_or(|(best, _)| in_bed > *best) {
-            longest.insert(day, (in_bed, value));
+            longest.insert(day, (in_bed, night));
         }
     }
-    longest.into_iter().map(|(day, (_, value))| (day, value)).collect()
+    longest.into_iter().filter_map(|(day, (_, night))| Some((day, night_metric(night, metric)?))).collect()
 }
 
 /// `snapshot` is the latest ring summary; only a ring series reads it.
@@ -240,7 +241,7 @@ pub fn baseline(store: &Store, args: &Value, now: i64) -> Result<Value, String> 
             out["delta_pct"] = r3(dev.delta_pct);
             out["z"] = r3(dev.z);
             out["band"] = json!(dev.band.as_str());
-            out["latest_ymd"] = json!(series.points.keys().next_back().map(|d| ymd_of_day(*d)));
+            out["latest_ymd"] = json!(series.points.range(base_first..=end).next_back().map(|(d, _)| ymd_of_day(*d)));
             Ok(out)
         })
         .collect::<Result<Vec<_>, String>>()?;
@@ -309,5 +310,10 @@ mod tests {
         let asleep = ring_points(&summary, "asleep_min");
         assert_eq!(asleep[&day("2024-01-11")], 420.0);
         assert_eq!(ring_points(&summary, "steps")[&day("2024-01-10")], 5000.0, "activity stays on its calendar day");
+        let no_hrv = json!({ "nights": [
+            { "ymd": "2024-01-10", "start": "23:00", "end": "07:00", "in_bed_h": 8.0, "hrv_ms": null },
+            { "ymd": "2024-01-11", "start": "13:00", "end": "14:00", "in_bed_h": 1.0, "hrv_ms": 70.0 },
+        ] });
+        assert!(ring_points(&no_hrv, "hrv_ms").is_empty(), "a nap does not stand in for a night without HRV");
     }
 }

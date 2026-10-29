@@ -417,7 +417,7 @@ async fn get_baseline_compares_recent_days_with_the_days_before() {
     assert_eq!((steps["baseline"]["n"].as_u64(), steps["baseline"]["missing_days"].as_u64()), (Some(26), Some(2)));
     assert!(near(&steps["baseline"]["mean"], 5115.385) && near(&steps["baseline"]["sd"], 697.247), "{steps}");
     assert_eq!((steps["recent"]["n"].as_u64(), steps["recent"]["mean"].as_f64()), (Some(1), Some(4500.0)));
-    assert!(near(&steps["delta"], -615.385) && near(&steps["delta_pct"], -12.03) && near(&steps["z"], -0.883), "{steps}");
+    assert!(near(&steps["delta"], -615.385) && near(&steps["delta_pct"], -12.03) && near(&steps["z"], -0.864), "{steps}");
     assert_eq!(steps["band"], "usual");
     assert_eq!(steps["latest_ymd"], steps["recent"]["end_ymd"]);
 

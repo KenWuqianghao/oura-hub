@@ -479,7 +479,7 @@ series name has a source prefix and gives one value per local day:
 
 | Name | Source | Day |
 | --- | --- | --- |
-| `ring:<metric>` | A `get_trends` metric of the latest ring summary | A sleep metric is on the day the night ends. When several periods end on one day, the longest in bed that has the metric gives the value (naps are left out). Days are in the summary's time zone. `steps`, `active_kcal` and `total_kcal` are calendar days |
+| `ring:<metric>` | A `get_trends` metric of the latest ring summary | A sleep metric is on the day the night ends. When several periods end on one day, the longest in bed gives the value, and the day is missing when that period lacks the metric (a nap never stands in for the night). Days are in the summary's time zone. `steps`, `active_kcal` and `total_kcal` are calendar days |
 | `health:<kind>` | An Apple Health kind, folded into a day as `get_health_daily` does (not `sleep_analysis`) | The local calendar day |
 | `sleep:<field>` | An Apple Health night of `get_health_sleep`; `field` is `asleep_min`, `in_bed_min`, `deep_min`, `core_min`, `rem_min` or `awake_min`. All sleep of the winning source counts, naps included. A night from a source without stages has no `deep_min`, `core_min`, `rem_min` or `awake_min` | The day the night ends (start plus six hours) |
 
@@ -487,15 +487,17 @@ A day with no data is absent, never zero. A day total (Apple Health `sum`, `coun
 and `minutes` kinds, and the ring's `steps`, `active_kcal`, `total_kcal`) leaves out
 today, because today is not over; `get_baseline` then ends its windows yesterday.
 
-`band` of `get_baseline` compares the recent mean with the baseline in standard
-errors of a mean of that many days, `z = delta / (sd / sqrt(recent n))`. It is
+`band` of `get_baseline` compares the recent mean with the baseline mean in
+standard errors of their difference, `z = delta / (sd * sqrt(1/R + 1/B))`. `R` and
+`B` are the recent and baseline days, each counted as `n (1 - ρ) / (1 + ρ)`
+independent days with `ρ` the lag-1 autocorrelation of the baseline. It is
 `not_enough_data` (baseline under 14 days, or no recent day), `no_spread` (SD 0), or
 `usual`, `notable`, `unusual` for \|z\| under 1, 1 to under 2, and 2 or more.
 
 `get_correlation` shrinks the paired days `n` to `n_eff` by Bartlett's rule,
 `n (1 - ρx ρy) / (1 + ρx ρy)` with the lag-1 autocorrelations of the two series:
 two slow trends share many days that are not independent. The interval comes from
-`n_eff`. `evidence` is `D` below 10 paired days, `A` for an `n_eff` of 30 or more
+`n_eff`. `evidence` is `D` below 10 paired days or an `n_eff` of 3 or less, `A` for an `n_eff` of 30 or more
 with an interval that excludes 0 and \|r\| of 0.3 or more, `B` for an interval that
 excludes 0, else `C`. A correlation is not a cause. The ring summary sends sleep
 periods with the day they start on (`ymd`). The two tools move a sleep metric to the

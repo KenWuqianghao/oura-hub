@@ -9,6 +9,8 @@ pub const MIN_PAIRED_DAYS: usize = 10;
 const STRONG_EVIDENCE_DAYS: usize = 30;
 /// The smallest |r| that grades A.
 const STRONG_EVIDENCE_R: f64 = 0.3;
+/// The largest day-to-day carry-over a baseline is given credit for.
+const MAX_CARRY: f64 = 0.9;
 
 pub fn mean(xs: &[f64]) -> Option<f64> {
     (!xs.is_empty()).then(|| xs.iter().sum::<f64>() / xs.len() as f64)
@@ -60,8 +62,9 @@ pub struct Deviation {
     pub delta: Option<f64>,
     /// `delta` in percent of the baseline mean. None when that mean is 0.
     pub delta_pct: Option<f64>,
-    /// `delta` in standard errors of a mean of `recent.len()` baseline days, so one
-    /// band means the same for every recent window. None for `NotEnoughData` and `NoSpread`.
+    /// `delta` in standard errors of the difference of the two means. Days carry over
+    /// (lag-1 autocorrelation of the baseline), so each window counts as fewer
+    /// independent days. None for `NotEnoughData` and `NoSpread`.
     pub z: Option<f64>,
 }
 
@@ -78,7 +81,9 @@ pub fn deviation(recent: &[f64], baseline: &[f64]) -> Deviation {
     if base_sd == 0.0 {
         return Deviation { band: Band::NoSpread, delta: Some(delta), delta_pct, z: None };
     }
-    let z = delta / (base_sd / (recent.len() as f64).sqrt());
+    let rho = lag1(baseline).clamp(0.0, MAX_CARRY);
+    let independent = |n: usize| (n as f64 * (1.0 - rho) / (1.0 + rho)).max(1.0);
+    let z = delta / (base_sd * (1.0 / independent(recent.len()) + 1.0 / independent(baseline.len())).sqrt());
     let band = match z.abs() {
         a if a < 1.0 => Band::Usual,
         a if a < 2.0 => Band::Notable,
@@ -167,7 +172,10 @@ pub fn correlate(xs: &[f64], ys: &[f64]) -> Correlation {
         return undetermined(format!("{flat} has the same value on every one of the {n} paired days, so r is undefined."));
     };
     let n_eff = effective_n(&xs[..n], &ys[..n]);
-    let ci95 = fisher_ci95(r, n_eff);
+    let Some(ci95) = fisher_ci95(r, n_eff) else {
+        return Correlation { n_eff: Some(n_eff), ..undetermined(format!("The {n} paired days carry over so much from day to day that they count as {n_eff:.1} independent days: too few for an interval.")) };
+    };
+    let ci95 = Some(ci95);
     let excludes_zero = ci95.is_some_and(|(lo, hi)| lo > 0.0 || hi < 0.0);
     let (evidence, note) = if excludes_zero && n_eff >= STRONG_EVIDENCE_DAYS as f64 && r.abs() >= STRONG_EVIDENCE_R {
         (Evidence::A, "A clear link: the 95% interval excludes 0, |r| is at least 0.3, and n_eff is at least 30. A correlation is not a cause.")
@@ -199,8 +207,14 @@ mod tests {
         let base: Vec<f64> = (0..14).map(|i| if i % 2 == 0 { 9.0 } else { 11.0 }).collect();
         let sd = sd(&base).unwrap();
         let band = |recent: f64| deviation(&[recent], &base).band;
-        // four recent days at +1 SD are 2 standard errors of a four-day mean
-        assert_eq!(deviation(&[10.0 + sd; 4], &base).band, Band::Unusual);
+        // nine recent days at +1 SD: 1 / sqrt(1/9 + 1/14) = 2.3 standard errors
+        assert_eq!(deviation(&[10.0 + sd; 4], &base).band, Band::Notable);
+        assert_eq!(deviation(&[10.0 + sd; 9], &base).band, Band::Unusual);
+        // a baseline that drifts slowly counts as fewer days, so the same shift weighs less
+        let drift: Vec<f64> = (0..14).map(|i| 10.0 + f64::from(i % 7) * 0.3).collect();
+        let shuffled: Vec<f64> = [0, 3, 6, 2, 5, 1, 4, 0, 3, 6, 2, 5, 1, 4].iter().map(|i| 10.0 + f64::from(*i) * 0.3).collect();
+        let z = |base: &[f64]| deviation(&[12.0; 7], base).z.unwrap();
+        assert!(z(&drift) < z(&shuffled), "{} {}", z(&drift), z(&shuffled));
         assert_eq!(band(10.0 + 0.5 * sd), Band::Usual);
         assert_eq!(band(10.0 - 1.5 * sd), Band::Notable);
         assert_eq!(band(10.0 + 2.5 * sd), Band::Unusual);
@@ -244,9 +258,11 @@ mod tests {
         assert_eq!(correlate(&xs, &other).evidence, Evidence::C);
         // two unrelated slow trends: 40 days that carry over are only a few independent ones
         let walk = |step: &[f64]| -> Vec<f64> { step.iter().scan(0.0, |acc, s| { *acc += 1.0 + s; Some(*acc) }).collect() };
-        let trends = correlate(&walk(&xs), &walk(&other));
-        assert!(trends.r.unwrap() > 0.9 && trends.n_eff.unwrap() < 10.0, "{trends:?}");
-        assert_ne!(trends.evidence, Evidence::A);
+        let (wx, wy) = (walk(&xs), walk(&other));
+        assert!(pearson(&wx, &wy).unwrap() > 0.9);
+        let trends = correlate(&wx, &wy);
+        assert!(trends.n_eff.unwrap() <= 3.0, "{trends:?}");
+        assert_eq!((trends.evidence, trends.ci95), (Evidence::D, None));
         let few = correlate(&xs[..9], &linked[..9]);
         assert_eq!((few.evidence, few.r, few.ci95), (Evidence::D, None, None));
         assert!(few.note.contains("1 more"), "{}", few.note);
