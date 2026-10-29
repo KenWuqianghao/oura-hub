@@ -424,6 +424,16 @@ async fn get_baseline_compares_recent_days_with_the_days_before() {
     assert_eq!((ring["band"].as_str(), ring["recent"]["n"].as_u64(), ring["baseline"]["n"].as_u64()), (Some("not_enough_data"), Some(0), Some(0)));
     assert_eq!((ring["delta"].clone(), ring["z"].clone(), ring["latest_ymd"].clone()), (Value::Null, Value::Null, Value::Null));
 
+    // end_ymd moves both windows back: yesterday becomes the recent day
+    let yesterday = steps["baseline"]["end_ymd"].clone();
+    let (err, r) = call_tool(&app, "get_baseline", json!({ "series": ["health:step_count"], "tz_offset_s": 0, "end_ymd": yesterday })).await;
+    assert!(!err, "{r}");
+    let moved = &r["baselines"][0];
+    assert_eq!((&moved["recent"]["start_ymd"], &moved["recent"]["end_ymd"], moved["recent"]["n"].as_u64()), (&yesterday, &yesterday, Some(1)));
+    assert_ne!(moved["recent"]["mean"].as_f64(), Some(4000.0), "today's steps are outside the windows");
+    let (err, _) = call_tool(&app, "get_baseline", json!({ "series": ["health:step_count"], "end_ymd": "yesterday" })).await;
+    assert!(err, "end_ymd must be a date");
+
     let (err, _) = call_tool(&app, "get_baseline", json!({ "series": ["hrv_ms"] })).await;
     assert!(err, "a name without a source prefix is refused");
     let (err, _) = call_tool(&app, "get_baseline", json!({ "series": ["health:no_such_kind"] })).await;

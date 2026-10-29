@@ -467,7 +467,7 @@ curl -s https://hub.example.com/mcp/<token> -H 'content-type: application/json' 
 | `get_health_sleep` | `days` or `start_ymd` and `end_ymd` | Apple Health sleep per night, from every source |
 | `get_workouts` | `days` or `start_unix` and `end_unix`, `limit` | Apple Health workouts with heart rate |
 | `get_health_samples` | `kind`, `days`, `limit` | Raw Apple Health samples of one kind |
-| `get_baseline` | `series` (1 to 20 names), `recent_days` (default 1, maximum 14), `baseline_days` (default 28, 7 to 365), `tz_offset_s` | Per series: the recent mean against the mean and sample SD of the days before it, `delta`, `delta_pct`, `z`, and a `band` |
+| `get_baseline` | `series` (1 to 20 names), `recent_days` (default 1, maximum 14), `baseline_days` (default 28, 7 to 365), `end_ymd` (default today), `tz_offset_s` | Per series: the recent mean against the mean and sample SD of the days before it, `delta`, `delta_pct`, `z`, and a `band` |
 | `get_correlation` | `x`, `y`, `days` (default 90, 14 to 4000), `lag_days` (default 0, maximum 7), `tz_offset_s` | Pearson `r` of the paired days with a 95% interval, `n`, and an `evidence` grade A to D |
 
 Metrics for `get_trends`: `hrv_ms`, `rhr`, `skin_temp`, `efficiency`, `in_bed_h`,

@@ -196,20 +196,24 @@ pub fn baseline(store: &Store, args: &Value, now: i64) -> Result<Value, String> 
     let baseline_days = args["baseline_days"].as_i64().unwrap_or(28).clamp(7, MAX_BASELINE_DAYS);
     let tz_s = DayWindow::tz_from_args(store, args)?;
     let today = DayWindow::today(tz_s, now);
-    let recent_first = today - recent_days + 1;
+    let end = match &args["end_ymd"] {
+        Value::Null => today,
+        v => v.as_str().and_then(parse_ymd).ok_or("end_ymd must be a date as YYYY-MM-DD")?,
+    };
+    let recent_first = end - recent_days + 1;
     let base_first = recent_first - baseline_days;
-    let window = DayWindow::new(tz_s, base_first, today);
+    let window = DayWindow::new(tz_s, base_first, end);
     let snapshot = snapshot_for(store, &refs.iter().collect::<Vec<_>>())?;
     let results = refs
         .iter()
         .map(|r| {
             let series = load_series(store, snapshot.as_ref(), r, &window)?;
-            let recent = range_values(&series.points, recent_first, today);
+            let recent = range_values(&series.points, recent_first, end);
             let base = range_values(&series.points, base_first, recent_first - 1);
             let dev = stats::deviation(&recent, &base);
             let mut out = series.head();
             out["recent"] = json!({
-                "start_ymd": ymd_of_day(recent_first), "end_ymd": ymd_of_day(today),
+                "start_ymd": ymd_of_day(recent_first), "end_ymd": ymd_of_day(end),
                 "n": recent.len(), "mean": r3(stats::mean(&recent)),
             });
             out["baseline"] = json!({
