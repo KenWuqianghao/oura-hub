@@ -8,6 +8,7 @@
 //! the rows back. The process holds no state outside the two files.
 
 pub mod agent;
+pub mod analysis;
 pub mod health;
 pub mod kinds;
 pub mod mcp;
@@ -99,15 +100,30 @@ struct DayWindow {
 }
 
 impl DayWindow {
+    /// The seconds east of UTC that set the day boundary: the argument, or the
+    /// one of the last ring summary (0 with no summary at all).
+    fn tz_from_args(store: &Store, args: &Value) -> Result<i64, String> {
+        match args["tz_offset_s"].as_i64() {
+            Some(tz) => Ok(tz.clamp(-18 * 3600, 18 * 3600)),
+            None => store.latest_tz_s().map_err(|e| format!("store error: {e}")),
+        }
+    }
+
+    fn today(tz_s: i64, now: i64) -> i64 {
+        (now + tz_s).div_euclid(86400)
+    }
+
+    fn new(tz_s: i64, first: i64, last: i64) -> Self {
+        // The store takes the day of a row with a cast that is right only for a positive local time.
+        Self { tz_s, first: first.max(1), last: last.max(1) }
+    }
+
     /// `start_ymd` with an optional `end_ymd`, or `days` that end today. The offset
     /// is the argument, or the one of the last ring summary: these tools work with
     /// no summary at all, so then it is 0.
     fn from_args(store: &Store, args: &Value, now: i64) -> Result<Self, String> {
-        let tz_s = match args["tz_offset_s"].as_i64() {
-            Some(tz) => tz.clamp(-18 * 3600, 18 * 3600),
-            None => store.latest_tz_s().map_err(|e| format!("store error: {e}"))?,
-        };
-        let today = (now + tz_s).div_euclid(86400);
+        let tz_s = Self::tz_from_args(store, args)?;
+        let today = Self::today(tz_s, now);
         let ymd = |key: &str| -> Result<Option<i64>, String> {
             match &args[key] {
                 Value::Null => Ok(None),
@@ -121,8 +137,7 @@ impl DayWindow {
         if last < first {
             return Err("end_ymd is before start_ymd".into());
         }
-        // The store takes the day of a row with a cast that is right only for a positive local time.
-        Ok(Self { tz_s, first: first.max(1), last: last.max(1) })
+        Ok(Self::new(tz_s, first, last))
     }
 
     /// The unix range of row starts, `[lo, hi)`. `shift_s` moves the day boundary
@@ -257,6 +272,27 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
                 "days": { "type": "integer", "minimum": 1, "maximum": 90, "default": 7 }
             }, "additionalProperties": false }),
         },
+        Tool {
+            name: "get_baseline",
+            description: "Compares the last days with the user's own baseline, computed on the hub. Quote its numbers; never compute a mean, a deviation or a percent yourself. Each `series` name has one source prefix and gives one value per local day: `ring:<metric>` (a metric of get_trends, see its `metric` list), `health:<kind>` (an Apple Health kind of list_health_kinds, folded into a day as get_health_daily does, in the same unit), `sleep:<field>` (an Apple Health night of get_health_sleep; field is one of asleep_min, in_bed_min, deep_min, core_min, rem_min, awake_min). A night is on the local day it ends on, for the ring and for Apple Health alike; of the sleep periods that end on one day the ring uses the longest. `ring:steps`, `ring:active_kcal` and `ring:total_kcal` are calendar days. Ring HRV is RMSSD and `health:hrv_sdnn` is SDNN: do not compare them. The windows are whole local days that end today: `recent` is the last `recent_days` days and `baseline` is the `baseline_days` days before it, with no overlap. A day with no data is missing, never zero: `n` counts the days with data and `missing_days` is baseline_days minus n. Per series it returns `series`, `source` (ring or apple_health), `unit`, `recent` and `baseline` ({start_ymd, end_ymd, n, mean}; baseline also `missing_days` and `sd`, the sample SD), `delta` (recent mean minus baseline mean), `delta_pct` (delta in percent of the baseline mean), `z` (delta divided by the baseline SD), `band`, and `latest_ymd` (the newest day with data in the two windows, null if none, so a stale source shows). `band` is `not_enough_data` when baseline n is under 14 or recent n is 0 (delta, delta_pct and z are null), `no_spread` when the baseline SD is 0 (z is null), else by |z|: `usual` under 1, `notable` from 1 to under 2, `unusual` from 2.",
+            input_schema: json!({ "type": "object", "properties": {
+                "series": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": analysis::MAX_SERIES, "description": "Series names such as ring:hrv_ms, ring:rhr, health:resting_heart_rate, sleep:asleep_min." },
+                "recent_days": { "type": "integer", "minimum": 1, "maximum": analysis::MAX_RECENT_DAYS, "default": 1, "description": "Days in the recent window, ending today." },
+                "baseline_days": { "type": "integer", "minimum": 7, "maximum": analysis::MAX_BASELINE_DAYS, "default": 28, "description": "Days in the baseline window, just before the recent window." },
+                "tz_offset_s": { "type": "integer", "description": "Seconds east of UTC that set the day boundary; default the offset of the last ring summary." }
+            }, "required": ["series"], "additionalProperties": false }),
+        },
+        Tool {
+            name: "get_correlation",
+            description: "Tests whether two series move together, computed on the hub (Pearson r with a 95% confidence interval by the Fisher z transform). Quote its numbers; never compute r yourself. `x` and `y` are series names with one source prefix, each one value per local day: `ring:<metric>` (a metric of get_trends, see its `metric` list), `health:<kind>` (an Apple Health kind of list_health_kinds, folded into a day as get_health_daily does), `sleep:<field>` (an Apple Health night of get_health_sleep; field is one of asleep_min, in_bed_min, deep_min, core_min, rem_min, awake_min). A night is on the local day it ends on, for the ring and for Apple Health alike, so a night's value on day d is the night that ends on d. The window is the last `days` whole local days, ending today. `lag_days` pairs x on day d with y on day d + lag_days: caffeine or a late workout on day d against the night that ends on d + 1 is lag_days 1. Only days where both values exist are paired; a missing day is dropped, never zero. It returns `x` and `y` ({series, source, unit}), `lag_days`, the window `start_ymd` and `end_ymd`, `n` (paired days), `r`, `ci95` ([low, high]), `evidence` and `note`. `evidence` is `D` when n is under 10 (r and ci95 are null and the note says how many more paired days are needed) or when a series has the same value on every paired day (r is null); `A` when n is at least 30, the interval excludes 0 and |r| is at least 0.3; `B` when the interval excludes 0; else `C`. A correlation is not a cause.",
+            input_schema: json!({ "type": "object", "properties": {
+                "x": { "type": "string", "description": "First series, such as health:dietary_caffeine." },
+                "y": { "type": "string", "description": "Second series, such as ring:hrv_ms." },
+                "days": { "type": "integer", "minimum": 14, "maximum": MAX_WINDOW_DAYS, "default": 90, "description": "How many days back from today." },
+                "lag_days": { "type": "integer", "minimum": 0, "maximum": analysis::MAX_LAG_DAYS, "default": 0, "description": "Pair x on day d with y on day d + lag_days." },
+                "tz_offset_s": { "type": "integer", "description": "Seconds east of UTC that set the day boundary; default the offset of the last ring summary." }
+            }, "required": ["x", "y"], "additionalProperties": false }),
+        },
     ];
     let handler: mcp::Handler = Arc::new(move |name, args| {
         let days = |default: u64| args["days"].as_u64().unwrap_or(default).clamp(1, 365) as usize;
@@ -297,6 +333,12 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
         }
         if name == "get_health_sleep" {
             return health_sleep(&store_for_handler, args, now);
+        }
+        if name == "get_baseline" {
+            return analysis::baseline(&store_for_handler, args, now);
+        }
+        if name == "get_correlation" {
+            return analysis::correlation(&store_for_handler, args, now);
         }
         if name == "get_workouts" {
             let limit = args["limit"].as_u64().unwrap_or(200).clamp(1, MAX_WORKOUTS) as usize;
