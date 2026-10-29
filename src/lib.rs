@@ -11,6 +11,7 @@ pub mod agent;
 pub mod health;
 pub mod kinds;
 pub mod mcp;
+pub mod stats;
 pub mod store;
 pub mod web;
 
