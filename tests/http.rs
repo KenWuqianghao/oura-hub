@@ -409,14 +409,16 @@ async fn get_baseline_compares_recent_days_with_the_days_before() {
     assert!(!err, "{r}");
     let steps = &r["baselines"][0];
     assert_eq!((steps["series"].as_str(), steps["source"].as_str(), steps["unit"].as_str()), (Some("health:step_count"), Some("apple_health"), Some("steps")));
-    // baseline: 28 days back from yesterday minus the two without steps; recent: today alone (4000 steps).
+    // Steps are a day total, so today's partial value is left out: recent is yesterday
+    // alone (4500 steps), baseline the 28 days before it minus the two without steps.
     // Mean, SD and z from an independent python computation.
     let near = |v: &Value, want: f64| (v.as_f64().unwrap() - want).abs() < 2e-3;
+    assert_eq!(steps["day_total"], true);
     assert_eq!((steps["baseline"]["n"].as_u64(), steps["baseline"]["missing_days"].as_u64()), (Some(26), Some(2)));
-    assert!(near(&steps["baseline"]["mean"], 5057.692) && near(&steps["baseline"]["sd"], 683.036), "{steps}");
-    assert_eq!((steps["recent"]["n"].as_u64(), steps["recent"]["mean"].as_f64()), (Some(1), Some(4000.0)));
-    assert!(near(&steps["delta"], -1057.692) && near(&steps["delta_pct"], -20.913) && near(&steps["z"], -1.549), "{steps}");
-    assert_eq!(steps["band"], "notable");
+    assert!(near(&steps["baseline"]["mean"], 5115.385) && near(&steps["baseline"]["sd"], 697.247), "{steps}");
+    assert_eq!((steps["recent"]["n"].as_u64(), steps["recent"]["mean"].as_f64()), (Some(1), Some(4500.0)));
+    assert!(near(&steps["delta"], -615.385) && near(&steps["delta_pct"], -12.03) && near(&steps["z"], -0.883), "{steps}");
+    assert_eq!(steps["band"], "usual");
     assert_eq!(steps["latest_ymd"], steps["recent"]["end_ymd"]);
 
     // the ring summary holds only a night in 2023: no recent value and no baseline
@@ -424,13 +426,13 @@ async fn get_baseline_compares_recent_days_with_the_days_before() {
     assert_eq!((ring["band"].as_str(), ring["recent"]["n"].as_u64(), ring["baseline"]["n"].as_u64()), (Some("not_enough_data"), Some(0), Some(0)));
     assert_eq!((ring["delta"].clone(), ring["z"].clone(), ring["latest_ymd"].clone()), (Value::Null, Value::Null, Value::Null));
 
-    // end_ymd moves both windows back: yesterday becomes the recent day
-    let yesterday = steps["baseline"]["end_ymd"].clone();
-    let (err, r) = call_tool(&app, "get_baseline", json!({ "series": ["health:step_count"], "tz_offset_s": 0, "end_ymd": yesterday })).await;
+    // end_ymd moves both windows back: two days ago becomes the recent day
+    let two_back = steps["baseline"]["end_ymd"].clone();
+    let (err, r) = call_tool(&app, "get_baseline", json!({ "series": ["health:step_count"], "tz_offset_s": 0, "end_ymd": two_back })).await;
     assert!(!err, "{r}");
     let moved = &r["baselines"][0];
-    assert_eq!((&moved["recent"]["start_ymd"], &moved["recent"]["end_ymd"], moved["recent"]["n"].as_u64()), (&yesterday, &yesterday, Some(1)));
-    assert_ne!(moved["recent"]["mean"].as_f64(), Some(4000.0), "today's steps are outside the windows");
+    assert_eq!((&moved["recent"]["start_ymd"], &moved["recent"]["end_ymd"], moved["recent"]["mean"].as_f64()), (&two_back, &two_back, Some(5000.0)));
+    assert!(near(&moved["baseline"]["mean"], 5076.923), "{moved}");
     let (err, _) = call_tool(&app, "get_baseline", json!({ "series": ["health:step_count"], "end_ymd": "yesterday" })).await;
     assert!(err, "end_ymd must be a date");
 
@@ -465,4 +467,18 @@ async fn get_correlation_pairs_x_on_day_d_with_y_on_day_d_plus_lag() {
 
     let (err, _) = call_tool(&app, "get_correlation", json!({ "x": "health:step_count", "y": "health:step_count" })).await;
     assert!(err, "a series against itself at lag 0 is refused");
+}
+
+#[tokio::test]
+async fn a_night_without_stages_is_missing_for_the_stage_fields() {
+    let app = app();
+    // last night came from a source that logs only "asleep" with no stage
+    let start = ((oura_hub::now_unix() / 86400) * 86400 + 2 * 3600) as f64;
+    let night = json!({ "uuid": "u1", "kind": "sleep_analysis", "start_unix": start, "end_unix": start + 420.0 * 60.0, "category": "asleep_unspecified", "source_bundle": "autosleep" });
+    let (s, _) = send(&app, post("/ingest/health", Some(TOKEN), json!({ "samples": [night] }))).await;
+    assert_eq!(s, StatusCode::OK);
+    let (err, r) = call_tool(&app, "get_baseline", json!({ "series": ["sleep:asleep_min", "sleep:deep_min"], "tz_offset_s": 0 })).await;
+    assert!(!err, "{r}");
+    assert_eq!((r["baselines"][0]["recent"]["n"].as_u64(), r["baselines"][0]["recent"]["mean"].as_f64()), (Some(1), Some(420.0)));
+    assert_eq!(r["baselines"][1]["recent"]["n"].as_u64(), Some(0), "no deep sleep was measured, so it is not 0 min: {r}");
 }

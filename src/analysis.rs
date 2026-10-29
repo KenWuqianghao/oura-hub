@@ -9,13 +9,16 @@ use serde_json::{json, Value};
 use crate::health::{self, ymd_of_day};
 use crate::stats;
 use crate::store::Store;
-use crate::{kinds, parse_ymd, DayWindow, MAX_WINDOW_DAYS};
+use crate::kinds::{self, Agg};
+use crate::{parse_ymd, DayWindow, MAX_WINDOW_DAYS};
 
 pub const MAX_SERIES: usize = 20;
 pub const MAX_RECENT_DAYS: i64 = 14;
 pub const MAX_BASELINE_DAYS: i64 = 365;
 pub const MAX_LAG_DAYS: i64 = 7;
 pub const SLEEP_FIELDS: &[&str] = &["asleep_min", "in_bed_min", "deep_min", "core_min", "rem_min", "awake_min"];
+/// Sleep fields that a source without sleep stages writes as 0: for such a night they are missing.
+const STAGE_FIELDS: &[&str] = &["deep_min", "core_min", "rem_min", "awake_min"];
 
 /// Ring metrics that come from `activity_daily` (a calendar day). Every other
 /// metric comes from the sleep periods of the summary.
@@ -45,6 +48,7 @@ impl SeriesRef {
                 .find(|m| **m == metric)
                 .map(|m| SeriesRef::Ring(m))
                 .ok_or_else(|| format!("unknown series {name:?}; {}", forms())),
+            Some(("health", "sleep_analysis")) => Err("health:sleep_analysis splits a night at midnight; use sleep:asleep_min or another sleep:<field>".into()),
             Some(("health", kind)) if !kind.is_empty() => Ok(SeriesRef::Health(kind.to_string())),
             Some(("sleep", field)) => SLEEP_FIELDS
                 .iter()
@@ -76,13 +80,16 @@ pub struct Series {
     pub name: String,
     pub source: &'static str,
     pub unit: String,
+    /// A total that grows through the day (steps, energy): today's value is partial,
+    /// so the series never holds today.
+    pub day_total: bool,
     /// Local days since 1970-01-01.
     pub points: BTreeMap<i64, f64>,
 }
 
 impl Series {
     fn head(&self) -> Value {
-        json!({ "series": self.name, "source": self.source, "unit": self.unit })
+        json!({ "series": self.name, "source": self.source, "unit": self.unit, "day_total": self.day_total })
     }
 }
 
@@ -105,32 +112,32 @@ fn night_metric(night: &Value, metric: &str) -> Option<f64> {
 }
 
 /// A ring metric per day. Sleep metrics sit on the wake day; of the periods that
-/// end on one day (a nap, a split night) the longest in bed gives the value.
+/// end on one day (a nap, a split night) and have the metric, the longest in bed gives the value.
 fn ring_points(summary: &Value, metric: &str) -> BTreeMap<i64, f64> {
     if ACTIVITY_METRICS.contains(&metric) {
         let Some(daily) = summary["activity_daily"].as_object() else { return BTreeMap::new() };
         return daily.iter().filter_map(|(ymd, d)| Some((parse_ymd(ymd)?, d[metric].as_f64()?))).collect();
     }
-    let mut longest: BTreeMap<i64, (f64, &Value)> = BTreeMap::new();
+    let mut longest: BTreeMap<i64, (f64, f64)> = BTreeMap::new();
     for night in summary["nights"].as_array().into_iter().flatten() {
-        let Some(day) = wake_day(night) else { continue };
+        let (Some(day), Some(value)) = (wake_day(night), night_metric(night, metric)) else { continue };
         let in_bed = night["in_bed_h"].as_f64().unwrap_or(0.0);
         if longest.get(&day).is_none_or(|(best, _)| in_bed > *best) {
-            longest.insert(day, (in_bed, night));
+            longest.insert(day, (in_bed, value));
         }
     }
-    longest.into_iter().filter_map(|(day, (_, night))| Some((day, night_metric(night, metric)?))).collect()
+    longest.into_iter().map(|(day, (_, value))| (day, value)).collect()
 }
 
 /// `snapshot` is the latest ring summary; only a ring series reads it.
-fn load_series(store: &Store, snapshot: Option<&Value>, series: &SeriesRef, w: &DayWindow) -> Result<Series, String> {
+fn load_series(store: &Store, snapshot: Option<&Value>, series: &SeriesRef, w: &DayWindow, today: i64) -> Result<Series, String> {
     let store_err = |e: anyhow::Error| format!("store error: {e}");
     let in_window = |p: BTreeMap<i64, f64>| p.range(w.first..=w.last).map(|(d, v)| (*d, *v)).collect::<BTreeMap<_, _>>();
-    let (unit, points) = match series {
+    let (unit, day_total, mut points) = match series {
         SeriesRef::Ring(metric) => {
             let summary = snapshot.ok_or("no ring data yet: nothing has been pushed to this hub")?;
             let unit = oura_summary::agent::TREND_METRICS.iter().find(|(m, _)| m == metric).map_or("", |(_, u)| *u);
-            (unit.to_string(), in_window(ring_points(summary, metric)))
+            (unit.to_string(), ACTIVITY_METRICS.contains(metric), in_window(ring_points(summary, metric)))
         }
         SeriesRef::Health(kind) => {
             let (stored_unit, has_values) = match kinds::lookup(kind) {
@@ -140,22 +147,28 @@ fn load_series(store: &Store, snapshot: Option<&Value>, series: &SeriesRef, w: &
             let def = kinds::def(kind, stored_unit.as_deref(), has_values);
             let (lo, hi) = w.unix_range(0);
             let days = store.health_daily(&def, lo, hi, w.tz_s).map_err(store_err)?;
-            if days.is_empty() && !store.health_kinds().map_err(store_err)?.iter().any(|k| k.kind == *kind) {
+            if days.is_empty() && !store.health_has_kind(kind).map_err(store_err)? {
                 return Err(format!("this hub holds no Apple Health kind {kind:?}; call list_health_kinds"));
             }
-            (def.unit.to_string(), days.iter().map(|d| (d.day, d.value * def.scale)).collect())
+            let day_total = matches!(def.agg, Agg::Sum | Agg::Count | Agg::Minutes);
+            (def.unit.to_string(), day_total, days.iter().map(|d| (d.day, d.value * def.scale)).collect())
         }
         SeriesRef::Sleep(field) => {
             let (lo, hi) = w.unix_range(health::SLEEP_DAY_SHIFT_S);
             let slices = store.health_sleep_slices(lo, hi, w.tz_s).map_err(store_err)?;
+            let has_stages = |n: &Value| ["deep_min", "core_min", "rem_min"].iter().any(|f| n[f].as_f64().is_some_and(|m| m > 0.0));
             let points = health::sleep_nights(&slices)
                 .iter()
+                .filter(|n| !STAGE_FIELDS.contains(field) || has_stages(n))
                 .filter_map(|n| Some((parse_ymd(n["ymd"].as_str()?)?, n[field].as_f64()?)))
                 .collect();
-            ("min".to_string(), points)
+            ("min".to_string(), false, points)
         }
     };
-    Ok(Series { name: series.name(), source: series.source(), unit, points })
+    if day_total {
+        points.remove(&today);
+    }
+    Ok(Series { name: series.name(), source: series.source(), unit, day_total, points })
 }
 
 fn parse_names(args: &Value, key: &str, max: usize) -> Result<Vec<SeriesRef>, String> {
@@ -193,21 +206,23 @@ fn range_values(points: &BTreeMap<i64, f64>, first: i64, last: i64) -> Vec<f64> 
 pub fn baseline(store: &Store, args: &Value, now: i64) -> Result<Value, String> {
     let refs = parse_names(args, "series", MAX_SERIES)?;
     let recent_days = args["recent_days"].as_i64().unwrap_or(1).clamp(1, MAX_RECENT_DAYS);
-    let baseline_days = args["baseline_days"].as_i64().unwrap_or(28).clamp(7, MAX_BASELINE_DAYS);
+    let baseline_days = args["baseline_days"].as_i64().unwrap_or(28).clamp(stats::MIN_BASELINE_DAYS as i64, MAX_BASELINE_DAYS);
     let tz_s = DayWindow::tz_from_args(store, args)?;
     let today = DayWindow::today(tz_s, now);
     let end = match &args["end_ymd"] {
         Value::Null => today,
         v => v.as_str().and_then(parse_ymd).ok_or("end_ymd must be a date as YYYY-MM-DD")?,
     };
-    let recent_first = end - recent_days + 1;
-    let base_first = recent_first - baseline_days;
-    let window = DayWindow::new(tz_s, base_first, end);
+    // one day more than the windows need: a day total ends a day earlier
+    let window = DayWindow::new(tz_s, end - recent_days - baseline_days, end);
     let snapshot = snapshot_for(store, &refs.iter().collect::<Vec<_>>())?;
     let results = refs
         .iter()
         .map(|r| {
-            let series = load_series(store, snapshot.as_ref(), r, &window)?;
+            let series = load_series(store, snapshot.as_ref(), r, &window, today)?;
+            let end = if series.day_total && end == today { today - 1 } else { end };
+            let recent_first = end - recent_days + 1;
+            let base_first = recent_first - baseline_days;
             let recent = range_values(&series.points, recent_first, end);
             let base = range_values(&series.points, base_first, recent_first - 1);
             let dev = stats::deviation(&recent, &base);
@@ -246,7 +261,7 @@ pub fn correlation(store: &Store, args: &Value, now: i64) -> Result<Value, Strin
     let today = DayWindow::today(tz_s, now);
     let window = DayWindow::new(tz_s, today - days + 1, today);
     let snapshot = snapshot_for(store, &[&x, &y])?;
-    let (sx, sy) = (load_series(store, snapshot.as_ref(), &x, &window)?, load_series(store, snapshot.as_ref(), &y, &window)?);
+    let (sx, sy) = (load_series(store, snapshot.as_ref(), &x, &window, today)?, load_series(store, snapshot.as_ref(), &y, &window, today)?);
     let (xs, ys): (Vec<f64>, Vec<f64>) = sx.points.iter().filter_map(|(d, xv)| Some((*xv, *sy.points.get(&(d + lag))?))).unzip();
     let c = stats::correlate(&xs, &ys);
     let mut out = window.json();
@@ -254,6 +269,7 @@ pub fn correlation(store: &Store, args: &Value, now: i64) -> Result<Value, Strin
     out["y"] = sy.head();
     out["lag_days"] = json!(lag);
     out["n"] = json!(c.n);
+    out["n_eff"] = json!(c.n_eff.map(|n| (n * 10.0).round() / 10.0));
     out["r"] = r3(c.r);
     out["ci95"] = json!(c.ci95.map(|(lo, hi)| [round3(lo), round3(hi)]));
     out["evidence"] = json!(c.evidence.as_str());

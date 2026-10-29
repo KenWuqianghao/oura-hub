@@ -5,7 +5,7 @@
 pub const MIN_BASELINE_DAYS: usize = 14;
 /// Paired days needed before a correlation is reported.
 pub const MIN_PAIRED_DAYS: usize = 10;
-/// Paired days from which a strong, significant correlation grades A.
+/// Effective paired days from which a large, significant correlation grades A.
 const STRONG_EVIDENCE_DAYS: usize = 30;
 /// The smallest |r| that grades A.
 const STRONG_EVIDENCE_R: f64 = 0.3;
@@ -60,7 +60,8 @@ pub struct Deviation {
     pub delta: Option<f64>,
     /// `delta` in percent of the baseline mean. None when that mean is 0.
     pub delta_pct: Option<f64>,
-    /// `delta` in baseline standard deviations. None for `NotEnoughData` and `NoSpread`.
+    /// `delta` in standard errors of a mean of `recent.len()` baseline days, so one
+    /// band means the same for every recent window. None for `NotEnoughData` and `NoSpread`.
     pub z: Option<f64>,
 }
 
@@ -77,7 +78,7 @@ pub fn deviation(recent: &[f64], baseline: &[f64]) -> Deviation {
     if base_sd == 0.0 {
         return Deviation { band: Band::NoSpread, delta: Some(delta), delta_pct, z: None };
     }
-    let z = delta / base_sd;
+    let z = delta / (base_sd / (recent.len() as f64).sqrt());
     let band = match z.abs() {
         a if a < 1.0 => Band::Usual,
         a if a < 2.0 => Band::Notable,
@@ -108,6 +109,9 @@ impl Evidence {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Correlation {
     pub n: usize,
+    /// `n` shrunk for the day-to-day carry-over of the two series. The interval and
+    /// the grade use it. None when r is not reported.
+    pub n_eff: Option<f64>,
     pub r: Option<f64>,
     pub ci95: Option<(f64, f64)>,
     pub evidence: Evidence,
@@ -129,19 +133,31 @@ fn pearson(xs: &[f64], ys: &[f64]) -> Option<f64> {
     Some((sxy / (sxx * syy).sqrt()).clamp(-1.0, 1.0))
 }
 
+/// The correlation of a series with itself one step later. 0 when undefined.
+fn lag1(xs: &[f64]) -> f64 {
+    pearson(&xs[..xs.len() - 1], &xs[1..]).unwrap_or(0.0)
+}
+
+/// Bartlett's effective sample size for the correlation of two autocorrelated
+/// series: two slow trends look related over many days that are not independent.
+fn effective_n(xs: &[f64], ys: &[f64]) -> f64 {
+    let carry = (lag1(xs) * lag1(ys)).max(0.0);
+    xs.len() as f64 * (1.0 - carry) / (1.0 + carry)
+}
+
 /// 95% confidence interval of r by the Fisher z transform. Needs n > 3.
-fn fisher_ci95(r: f64, n: usize) -> Option<(f64, f64)> {
-    if n <= 3 {
+fn fisher_ci95(r: f64, n: f64) -> Option<(f64, f64)> {
+    if n <= 3.0 {
         return None;
     }
-    let (z, se) = (r.atanh(), 1.0 / ((n - 3) as f64).sqrt());
+    let (z, se) = (r.atanh(), 1.0 / (n - 3.0).sqrt());
     Some(((z - 1.96 * se).tanh(), (z + 1.96 * se).tanh()))
 }
 
 /// `xs[i]` and `ys[i]` are the two values of paired day i.
 pub fn correlate(xs: &[f64], ys: &[f64]) -> Correlation {
     let n = xs.len().min(ys.len());
-    let undetermined = |note: String| Correlation { n, r: None, ci95: None, evidence: Evidence::D, note };
+    let undetermined = |note: String| Correlation { n, n_eff: None, r: None, ci95: None, evidence: Evidence::D, note };
     if n < MIN_PAIRED_DAYS {
         let more = MIN_PAIRED_DAYS - n;
         return undetermined(format!("Only {n} paired days; {more} more needed before a correlation is reported (minimum {MIN_PAIRED_DAYS})."));
@@ -150,16 +166,17 @@ pub fn correlate(xs: &[f64], ys: &[f64]) -> Correlation {
         let flat = if all_equal(&xs[..n]) { "x" } else { "y" };
         return undetermined(format!("{flat} has the same value on every one of the {n} paired days, so r is undefined."));
     };
-    let ci95 = fisher_ci95(r, n);
+    let n_eff = effective_n(&xs[..n], &ys[..n]);
+    let ci95 = fisher_ci95(r, n_eff);
     let excludes_zero = ci95.is_some_and(|(lo, hi)| lo > 0.0 || hi < 0.0);
-    let (evidence, note) = if excludes_zero && n >= STRONG_EVIDENCE_DAYS && r.abs() >= STRONG_EVIDENCE_R {
-        (Evidence::A, "The 95% interval excludes 0 and |r| is at least 0.3. A correlation is not a cause.")
+    let (evidence, note) = if excludes_zero && n_eff >= STRONG_EVIDENCE_DAYS as f64 && r.abs() >= STRONG_EVIDENCE_R {
+        (Evidence::A, "A clear link: the 95% interval excludes 0, |r| is at least 0.3, and n_eff is at least 30. A correlation is not a cause.")
     } else if excludes_zero {
-        (Evidence::B, "The 95% interval excludes 0, but n is under 30 or |r| is under 0.3. A correlation is not a cause.")
+        (Evidence::B, "A link, but small (|r| under 0.3) or from few independent days (n_eff under 30). A correlation is not a cause.")
     } else {
-        (Evidence::C, "The 95% interval includes 0: no reliable link at this sample size.")
+        (Evidence::C, "No reliable link: the 95% interval includes 0 at this n_eff.")
     };
-    Correlation { n, r: Some(r), ci95, evidence, note: note.into() }
+    Correlation { n, n_eff: Some(n_eff), r: Some(r), ci95, evidence, note: note.into() }
 }
 
 #[cfg(test)]
@@ -182,6 +199,8 @@ mod tests {
         let base: Vec<f64> = (0..14).map(|i| if i % 2 == 0 { 9.0 } else { 11.0 }).collect();
         let sd = sd(&base).unwrap();
         let band = |recent: f64| deviation(&[recent], &base).band;
+        // four recent days at +1 SD are 2 standard errors of a four-day mean
+        assert_eq!(deviation(&[10.0 + sd; 4], &base).band, Band::Unusual);
         assert_eq!(band(10.0 + 0.5 * sd), Band::Usual);
         assert_eq!(band(10.0 - 1.5 * sd), Band::Notable);
         assert_eq!(band(10.0 + 2.5 * sd), Band::Unusual);
@@ -206,22 +225,29 @@ mod tests {
     fn pearson_r_and_its_interval_match_a_known_sample() {
         let xs: Vec<f64> = (1..=12).map(f64::from).collect();
         let ys = [2.0, 1.0, 4.0, 3.0, 7.0, 5.0, 8.0, 6.0, 11.0, 9.0, 12.0, 10.0];
-        let c = correlate(&xs, &ys);
         // r and the interval from an independent python computation
-        assert!((c.r.unwrap() - 0.916083916).abs() < 1e-6, "{c:?}");
-        let (lo, hi) = c.ci95.unwrap();
+        let r = pearson(&xs, &ys).unwrap();
+        assert!((r - 0.916083916).abs() < 1e-6, "{r}");
+        let (lo, hi) = fisher_ci95(r, 12.0).unwrap();
         assert!((lo - 0.72151).abs() < 1e-4 && (hi - 0.97657).abs() < 1e-4, "{lo} {hi}");
-        assert_eq!(c.evidence, Evidence::B, "n = 12 is under 30");
     }
 
     #[test]
     fn evidence_grades() {
-        let xs: Vec<f64> = (0..40).map(f64::from).collect();
-        let up: Vec<f64> = xs.iter().map(|x| x + (x * 7.0).sin() * 3.0).collect();
-        assert_eq!(correlate(&xs, &up).evidence, Evidence::A);
-        let noise: Vec<f64> = xs.iter().map(|x| (x * 12.9898).sin() * 43758.5453 % 1.0).collect();
-        assert_eq!(correlate(&xs, &noise).evidence, Evidence::C);
-        let few = correlate(&xs[..9], &up[..9]);
+        let noise = |seed: u64| -> Vec<f64> {
+            let mut s = seed;
+            (0..40).map(|_| { s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); (s >> 11) as f64 / (1u64 << 53) as f64 }).collect()
+        };
+        let (xs, other) = (noise(1), noise(6));
+        let linked: Vec<f64> = xs.iter().zip(&other).map(|(x, e)| x + 0.3 * e).collect();
+        assert_eq!(correlate(&xs, &linked).evidence, Evidence::A);
+        assert_eq!(correlate(&xs, &other).evidence, Evidence::C);
+        // two unrelated slow trends: 40 days that carry over are only a few independent ones
+        let walk = |step: &[f64]| -> Vec<f64> { step.iter().scan(0.0, |acc, s| { *acc += 1.0 + s; Some(*acc) }).collect() };
+        let trends = correlate(&walk(&xs), &walk(&other));
+        assert!(trends.r.unwrap() > 0.9 && trends.n_eff.unwrap() < 10.0, "{trends:?}");
+        assert_ne!(trends.evidence, Evidence::A);
+        let few = correlate(&xs[..9], &linked[..9]);
         assert_eq!((few.evidence, few.r, few.ci95), (Evidence::D, None, None));
         assert!(few.note.contains("1 more"), "{}", few.note);
     }

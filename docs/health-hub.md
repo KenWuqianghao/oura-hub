@@ -467,8 +467,8 @@ curl -s https://hub.example.com/mcp/<token> -H 'content-type: application/json' 
 | `get_health_sleep` | `days` or `start_ymd` and `end_ymd` | Apple Health sleep per night, from every source |
 | `get_workouts` | `days` or `start_unix` and `end_unix`, `limit` | Apple Health workouts with heart rate |
 | `get_health_samples` | `kind`, `days`, `limit` | Raw Apple Health samples of one kind |
-| `get_baseline` | `series` (1 to 20 names), `recent_days` (default 1, maximum 14), `baseline_days` (default 28, 7 to 365), `end_ymd` (default today), `tz_offset_s` | Per series: the recent mean against the mean and sample SD of the days before it, `delta`, `delta_pct`, `z`, and a `band` |
-| `get_correlation` | `x`, `y`, `days` (default 90, 14 to 4000), `lag_days` (default 0, maximum 7), `tz_offset_s` | Pearson `r` of the paired days with a 95% interval, `n`, and an `evidence` grade A to D |
+| `get_baseline` | `series` (1 to 20 names), `recent_days` (default 1, maximum 14), `baseline_days` (default 28, 14 to 365), `end_ymd` (default today, yesterday for a day total), `tz_offset_s` | Per series: the recent mean against the mean and sample SD of the days before it, `delta`, `delta_pct`, `z`, and a `band` |
+| `get_correlation` | `x`, `y`, `days` (default 90, 14 to 4000), `lag_days` (default 0, maximum 7), `tz_offset_s` | Pearson `r` of the paired days, `n`, `n_eff`, a 95% interval from `n_eff`, and an `evidence` grade A to D |
 
 Metrics for `get_trends`: `hrv_ms`, `rhr`, `skin_temp`, `efficiency`, `in_bed_h`,
 `asleep_min`, `deep_pct`, `rem_pct`, `light_pct`, `wake_pct`, `awakenings`,
@@ -479,18 +479,27 @@ series name has a source prefix and gives one value per local day:
 
 | Name | Source | Day |
 | --- | --- | --- |
-| `ring:<metric>` | A `get_trends` metric of the latest ring summary | A sleep metric is on the day the night ends. When several periods end on one day, the longest in bed gives the value. `steps`, `active_kcal` and `total_kcal` are calendar days |
-| `health:<kind>` | An Apple Health kind, folded into a day as `get_health_daily` does | The local calendar day |
-| `sleep:<field>` | An Apple Health night of `get_health_sleep`; `field` is `asleep_min`, `in_bed_min`, `deep_min`, `core_min`, `rem_min` or `awake_min` | The day the night ends |
+| `ring:<metric>` | A `get_trends` metric of the latest ring summary | A sleep metric is on the day the night ends. When several periods end on one day, the longest in bed that has the metric gives the value (naps are left out). Days are in the summary's time zone. `steps`, `active_kcal` and `total_kcal` are calendar days |
+| `health:<kind>` | An Apple Health kind, folded into a day as `get_health_daily` does (not `sleep_analysis`) | The local calendar day |
+| `sleep:<field>` | An Apple Health night of `get_health_sleep`; `field` is `asleep_min`, `in_bed_min`, `deep_min`, `core_min`, `rem_min` or `awake_min`. All sleep of the winning source counts, naps included. A night from a source without stages has no `deep_min`, `core_min`, `rem_min` or `awake_min` | The day the night ends (start plus six hours) |
 
-A day with no data is absent, never zero. `band` of `get_baseline` is
+A day with no data is absent, never zero. A day total (Apple Health `sum`, `count`
+and `minutes` kinds, and the ring's `steps`, `active_kcal`, `total_kcal`) leaves out
+today, because today is not over; `get_baseline` then ends its windows yesterday.
+
+`band` of `get_baseline` compares the recent mean with the baseline in standard
+errors of a mean of that many days, `z = delta / (sd / sqrt(recent n))`. It is
 `not_enough_data` (baseline under 14 days, or no recent day), `no_spread` (SD 0), or
 `usual`, `notable`, `unusual` for \|z\| under 1, 1 to under 2, and 2 or more.
-`evidence` of `get_correlation` is `D` below 10 paired days, `A` for 30 or more paired
-days with an interval that excludes 0 and \|r\| of 0.3 or more, `B` for an interval that
+
+`get_correlation` shrinks the paired days `n` to `n_eff` by Bartlett's rule,
+`n (1 - ρx ρy) / (1 + ρx ρy)` with the lag-1 autocorrelations of the two series:
+two slow trends share many days that are not independent. The interval comes from
+`n_eff`. `evidence` is `D` below 10 paired days, `A` for an `n_eff` of 30 or more
+with an interval that excludes 0 and \|r\| of 0.3 or more, `B` for an interval that
 excludes 0, else `C`. A correlation is not a cause. The ring summary sends sleep
 periods with the day they start on (`ymd`). The two tools move a sleep metric to the
-day the period ends, so `lag_days` has one meaning for every source.
+day the period ends, so a lag of one day means the next night for both sources.
 
 Every status carries `freshness`. The ring sends data at sync time, not live.
 `ring_last_sync_age_h` is the age of the newest ring data. An agent should say
