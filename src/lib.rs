@@ -396,7 +396,7 @@ pub fn app_state_with_agent(store: Store, ring: oura_store::Store, token: String
         mcp: Server {
             name: "oura-hub",
             version: env!("CARGO_PKG_VERSION"),
-            instructions: "Personal health data from an Oura ring. Start with get_status_now. Values carry a freshness block: ring data is as of the last sync, not live.",
+            instructions: agent::RULES,
             tools,
             handler,
         },
