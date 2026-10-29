@@ -1,7 +1,3 @@
-//! The two statistics tools. A series name picks one value per local day from the
-//! ring summary or from Apple Health; `stats` does the arithmetic; this module
-//! only loads series, cuts windows, and shapes the JSON.
-
 use std::collections::BTreeMap;
 
 use serde_json::{json, Value};
@@ -17,14 +13,10 @@ pub const MAX_RECENT_DAYS: i64 = 14;
 pub const MAX_BASELINE_DAYS: i64 = 365;
 pub const MAX_LAG_DAYS: i64 = 7;
 pub const SLEEP_FIELDS: &[&str] = &["asleep_min", "in_bed_min", "deep_min", "core_min", "rem_min", "awake_min"];
-/// Sleep fields that a source without sleep stages writes as 0: for such a night they are missing.
 const STAGE_FIELDS: &[&str] = &["deep_min", "core_min", "rem_min", "awake_min"];
 
-/// Ring metrics that come from `activity_daily` (a calendar day). Every other
-/// metric comes from the sleep periods of the summary.
 const ACTIVITY_METRICS: &[&str] = &["steps", "active_kcal", "total_kcal"];
 
-/// What a series name means. Parsed once, where the name enters.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SeriesRef {
     Ring(&'static str),
@@ -93,8 +85,6 @@ impl Series {
     }
 }
 
-/// The local day a sleep period of the summary ends on. `ymd` is the day it
-/// starts on, so a period that ends earlier in the day than it starts ends on the next day.
 fn wake_day(night: &Value) -> Option<i64> {
     let clock = |key: &str| -> Option<i64> {
         let (h, m) = night[key].as_str()?.split_once(':')?;
@@ -111,9 +101,6 @@ fn night_metric(night: &Value, metric: &str) -> Option<f64> {
     }
 }
 
-/// A ring metric per day. Sleep metrics sit on the wake day; of the periods that
-/// end on one day (a nap, a split night) the longest in bed gives the value, and the
-/// day is missing when that period lacks the metric: a nap never stands in for the night.
 fn ring_points(summary: &Value, metric: &str) -> BTreeMap<i64, f64> {
     if ACTIVITY_METRICS.contains(&metric) {
         let Some(daily) = summary["activity_daily"].as_object() else { return BTreeMap::new() };
@@ -130,7 +117,6 @@ fn ring_points(summary: &Value, metric: &str) -> BTreeMap<i64, f64> {
     longest.into_iter().filter_map(|(day, (_, night))| Some((day, night_metric(night, metric)?))).collect()
 }
 
-/// `snapshot` is the latest ring summary; only a ring series reads it.
 fn load_series(store: &Store, snapshot: Option<&Value>, series: &SeriesRef, w: &DayWindow, today: i64) -> Result<Series, String> {
     let store_err = |e: anyhow::Error| format!("store error: {e}");
     let in_window = |p: BTreeMap<i64, f64>| p.range(w.first..=w.last).map(|(d, v)| (*d, *v)).collect::<BTreeMap<_, _>>();
@@ -183,7 +169,6 @@ fn parse_names(args: &Value, key: &str, max: usize) -> Result<Vec<SeriesRef>, St
     names.into_iter().map(SeriesRef::parse).collect()
 }
 
-/// The latest ring summary, read only when a ring series needs it.
 fn snapshot_for(store: &Store, refs: &[&SeriesRef]) -> Result<Option<Value>, String> {
     if !refs.iter().any(|r| matches!(r, SeriesRef::Ring(_))) {
         return Ok(None);
@@ -214,8 +199,8 @@ pub fn baseline(store: &Store, args: &Value, now: i64) -> Result<Value, String> 
         Value::Null => today,
         v => v.as_str().and_then(parse_ymd).ok_or("end_ymd must be a date as YYYY-MM-DD")?,
     };
-    // one day more than the windows need: a day total ends a day earlier
-    let window = DayWindow::new(tz_s, end - recent_days - baseline_days, end);
+    let day_total_base_first = (end - 1) - recent_days + 1 - baseline_days;
+    let window = DayWindow::new(tz_s, day_total_base_first, end);
     let snapshot = snapshot_for(store, &refs.iter().collect::<Vec<_>>())?;
     let results = refs
         .iter()

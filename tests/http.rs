@@ -369,10 +369,6 @@ async fn health_samples_reach_back_past_a_year() {
     assert_eq!(r["samples"][0]["uuid"], "a1", "a row older than 365 days is in a 4000-day window: {r}");
 }
 
-/// 40 days of steps and of the nights that follow them, ending today, tz 0.
-/// Steps `k` days back: 4000 + 500 * (k mod 5). The night that ends `k` days back
-/// lasts 300 + (steps of the day before) / 50 minutes, so `step_count` on day d and
-/// `sleep:asleep_min` on day d + 1 are exactly linear.
 async fn seed_steps_and_nights(app: &axum::Router, skip_days_back: &[i64]) {
     let today = oura_hub::now_unix() / 86400;
     let steps_back = |k: i64| 4000.0 + 500.0 * k.rem_euclid(5) as f64;
@@ -401,7 +397,6 @@ async fn call_tool(app: &axum::Router, name: &str, arguments: Value) -> (bool, V
 #[tokio::test]
 async fn get_baseline_compares_recent_days_with_the_days_before() {
     let app = app();
-    // two baseline days (5 and 6 days back, one low and one high) have no steps
     seed_steps_and_nights(&app, &[5, 6]).await;
     let (_, _) = send(&app, post("/ingest/summary", Some(TOKEN), summary())).await;
 
@@ -409,9 +404,6 @@ async fn get_baseline_compares_recent_days_with_the_days_before() {
     assert!(!err, "{r}");
     let steps = &r["baselines"][0];
     assert_eq!((steps["series"].as_str(), steps["source"].as_str(), steps["unit"].as_str()), (Some("health:step_count"), Some("apple_health"), Some("steps")));
-    // Steps are a day total, so today's partial value is left out: recent is yesterday
-    // alone (4500 steps), baseline the 28 days before it minus the two without steps.
-    // Mean, SD and z from an independent python computation.
     let near = |v: &Value, want: f64| (v.as_f64().unwrap() - want).abs() < 2e-3;
     assert_eq!(steps["day_total"], true);
     assert_eq!((steps["baseline"]["n"].as_u64(), steps["baseline"]["missing_days"].as_u64()), (Some(26), Some(2)));
@@ -421,12 +413,10 @@ async fn get_baseline_compares_recent_days_with_the_days_before() {
     assert_eq!(steps["band"], "usual");
     assert_eq!(steps["latest_ymd"], steps["recent"]["end_ymd"]);
 
-    // the ring summary holds only a night in 2023: no recent value and no baseline
     let ring = &r["baselines"][1];
     assert_eq!((ring["band"].as_str(), ring["recent"]["n"].as_u64(), ring["baseline"]["n"].as_u64()), (Some("not_enough_data"), Some(0), Some(0)));
     assert_eq!((ring["delta"].clone(), ring["z"].clone(), ring["latest_ymd"].clone()), (Value::Null, Value::Null, Value::Null));
 
-    // end_ymd moves both windows back: two days ago becomes the recent day
     let two_back = steps["baseline"]["end_ymd"].clone();
     let (err, r) = call_tool(&app, "get_baseline", json!({ "series": ["health:step_count"], "tz_offset_s": 0, "end_ymd": two_back })).await;
     assert!(!err, "{r}");
@@ -459,7 +449,6 @@ async fn get_correlation_pairs_x_on_day_d_with_y_on_day_d_plus_lag() {
     let (_, r) = call_tool(&app, "get_correlation", args(0)).await;
     assert!(r["r"].as_f64().unwrap().abs() < 0.5, "same-day pairs are not the pairs that were built to agree: {r}");
 
-    // no ring value falls in the window: no pairs, grade D, no r
     let (err, r) = call_tool(&app, "get_correlation", json!({ "x": "ring:hrv_ms", "y": "health:step_count", "tz_offset_s": 0 })).await;
     assert!(!err);
     assert_eq!((r["n"].as_u64(), r["evidence"].as_str(), r["r"].clone(), r["ci95"].clone()), (Some(0), Some("D"), Value::Null, Value::Null));
@@ -472,7 +461,6 @@ async fn get_correlation_pairs_x_on_day_d_with_y_on_day_d_plus_lag() {
 #[tokio::test]
 async fn a_night_without_stages_is_missing_for_the_stage_fields() {
     let app = app();
-    // last night came from a source that logs only "asleep" with no stage
     let start = ((oura_hub::now_unix() / 86400) * 86400 + 2 * 3600) as f64;
     let night = json!({ "uuid": "u1", "kind": "sleep_analysis", "start_unix": start, "end_unix": start + 420.0 * 60.0, "category": "asleep_unspecified", "source_bundle": "autosleep" });
     let (s, _) = send(&app, post("/ingest/health", Some(TOKEN), json!({ "samples": [night] }))).await;

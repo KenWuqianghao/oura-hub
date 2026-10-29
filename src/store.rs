@@ -237,7 +237,6 @@ impl Store {
         Ok(rows)
     }
 
-    /// Whether the hub holds any row of `kind`: one seek on the (kind, start_unix) index.
     pub fn health_has_kind(&self, kind: &str) -> Result<bool> {
         let conn = self.conn.lock().unwrap();
         Ok(conn.query_row(&format!("SELECT 1 {NEWEST_ROW} ?1 LIMIT 1"), params![kind], |_| Ok(())).optional()?.is_some())

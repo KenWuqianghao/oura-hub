@@ -489,15 +489,18 @@ today, because today is not over; `get_baseline` then ends its windows yesterday
 
 `band` of `get_baseline` compares the recent mean with the baseline mean in
 standard errors of their difference, `z = delta / (sd * sqrt(1/R + 1/B))`. `R` and
-`B` are the recent and baseline days, each counted as `n (1 - ρ) / (1 + ρ)`
-independent days with `ρ` the lag-1 autocorrelation of the baseline. It is
-`not_enough_data` (baseline under 14 days, or no recent day), `no_spread` (SD 0), or
-`usual`, `notable`, `unusual` for \|z\| under 1, 1 to under 2, and 2 or more.
+`B` are the recent and baseline days, each counted as `max(n (1 - ρ) / (1 + ρ), 1)`
+independent days, with `ρ` the lag-1 autocorrelation of the baseline held between 0
+and 0.9. It is `not_enough_data` (baseline under 14 days, or no recent day),
+`no_spread` (SD 0), or `usual`, `notable`, `unusual` for \|z\| under 1, 1 to under
+2, and 2 or more.
 
 `get_correlation` shrinks the paired days `n` to `n_eff` by Bartlett's rule,
-`n (1 - ρx ρy) / (1 + ρx ρy)` with the lag-1 autocorrelations of the two series:
-two slow trends share many days that are not independent. The interval comes from
-`n_eff`. `evidence` is `D` below 10 paired days or an `n_eff` of 3 or less, `A` for an `n_eff` of 30 or more
+`n (1 - ρx ρy) / (1 + ρx ρy)` with the lag-1 autocorrelations of the two series (a
+negative product counts as 0): two slow trends share many days that are not
+independent. The interval comes from `n_eff`. `evidence` is `D` below 10 paired
+days, for a series with the same value on every paired day, or for an `n_eff` of 3
+or less; then `r` and the interval are null. It is `A` for an `n_eff` of 30 or more
 with an interval that excludes 0 and \|r\| of 0.3 or more, `B` for an interval that
 excludes 0, else `C`. A correlation is not a cause. The ring summary sends sleep
 periods with the day they start on (`ymd`). The two tools move a sleep metric to the
