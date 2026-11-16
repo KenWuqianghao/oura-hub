@@ -178,6 +178,8 @@ The phone builds two summaries and pushes each one to `POST /ingest/summary`:
 | `ring` | The ring rows and the app's journal only | Ring nights, scores, sleep debt, the formula VO2 max estimate (`fitness.source` is `formula`), activity, ring sessions and journal workouts |
 | `watch` | Apple Health only (`external.json`: Apple Watch sleep stages, heart rate, HRV SDNN, workouts, VO2 max) | Watch nights with a sleep score, scores per day (sleep, readiness), sleep debt, the measured VO2 max, Apple Health workouts |
 
+When Apple Health has no Apple Watch data, the phone sends no watch summary and the hub keeps the last one. The MCP watch block gives its age in `age_min`, and the Today table shows the day of each value.
+
 No value in one summary comes from the other source, and the hub does not merge
 them. The hub stores each kind on its own: the dedup ("unchanged, not stored") and
 the retention (the last 500) are per kind. A body without `kind`, or with a `kind`
