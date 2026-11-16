@@ -71,7 +71,7 @@ export async function load() {
   try {
     const [summary, watchSummary, watch, info] = await Promise.all([
       api.summary().catch(e => { if (e instanceof ApiError && e.status === 404) return null; throw e }),
-      api.watchSummary(),
+      api.watchSummary().catch(() => null),
       api.tool<Watch>('get_watch').catch(() => null),
       api.health().catch(() => null),
     ])
