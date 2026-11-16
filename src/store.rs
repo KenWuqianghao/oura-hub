@@ -160,12 +160,20 @@ impl Store {
         let sha256 = Self::content_sha256(body);
         let generated_at = body.get("generated_at").and_then(Value::as_f64);
         let conn = self.conn.lock().unwrap();
-        let inserted = conn.execute(
-            "INSERT OR IGNORE INTO snapshots(kind, received_at, generated_at, sha256, body) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![kind.as_str(), received_at, generated_at, sha256, text],
+        // Known content takes the new push's stamps, so `latest` and the age follow the
+        // last push. An upsert cannot say if it inserted, and `stored` must.
+        let restamped = conn.execute(
+            "UPDATE snapshots SET received_at = ?3, generated_at = ?4, body = ?5 WHERE kind = ?1 AND sha256 = ?2",
+            params![kind.as_str(), sha256, received_at, generated_at, text],
         )?;
+        if restamped == 0 {
+            conn.execute(
+                "INSERT INTO snapshots(kind, received_at, generated_at, sha256, body) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![kind.as_str(), received_at, generated_at, sha256, text],
+            )?;
+        }
         let snapshots: i64 = conn.query_row("SELECT COUNT(*) FROM snapshots WHERE kind = ?1", params![kind.as_str()], |r| r.get(0))?;
-        Ok(PutOutcome { stored: inserted == 1, sha256, snapshots })
+        Ok(PutOutcome { stored: restamped == 0, sha256, snapshots })
     }
 
     pub fn latest(&self, kind: SummaryKind) -> Result<Option<Snapshot>> {
@@ -429,6 +437,31 @@ mod tests {
         assert_eq!(latest.received_at, 102);
         assert_eq!(latest.generated_at, Some(20.0));
         assert_eq!(latest.body["generated_at"], 20.0);
+    }
+
+    #[test]
+    fn a_repeated_push_takes_the_new_stamps() {
+        let s = Store::in_memory().unwrap();
+        s.put(Ring, &json!({ "generated_at": 10.0, "nights": [] }), 100).unwrap();
+        let again = s.put(Ring, &json!({ "generated_at": 70.0, "nights": [] }), 160).unwrap();
+        assert!(!again.stored);
+        let latest = s.latest(Ring).unwrap().unwrap();
+        assert_eq!((latest.received_at, latest.generated_at), (160, Some(70.0)));
+        assert_eq!(latest.body["generated_at"], 70.0);
+    }
+
+    #[test]
+    fn content_pushed_again_after_other_content_is_the_latest() {
+        let s = Store::in_memory().unwrap();
+        let a = json!({ "nights": ["a"] });
+        s.put(Ring, &a, 100).unwrap();
+        s.put(Ring, &json!({ "nights": ["b"] }), 101).unwrap();
+        s.put(Ring, &json!({ "nights": ["c"] }), 102).unwrap();
+        assert!(!s.put(Ring, &a, 103).unwrap().stored);
+        assert_eq!(s.latest(Ring).unwrap().unwrap().body, a);
+        s.prune(Ring, 1).unwrap();
+        assert_eq!(s.latest(Ring).unwrap().unwrap().body, a, "retention keeps the re-pushed content");
+        assert_eq!(s.count_all().unwrap(), 1);
     }
 
     #[test]
