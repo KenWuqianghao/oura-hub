@@ -135,8 +135,8 @@ impl Store {
     fn init(conn: Connection) -> Result<Self> {
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         let tx = conn.unchecked_transaction()?;
-        // Before summaries had a kind, every snapshot was the one merged summary. It
-        // becomes a ring snapshot: the ring summary keeps that shape.
+        // A snapshot from before summaries had a kind is the old merged summary, with
+        // Apple Watch values in it. It is kept as ring until the phone pushes a new one.
         let columns: Vec<String> = tx
             .prepare("SELECT name FROM pragma_table_info('snapshots')")?
             .query_map([], |r| r.get(0))?
