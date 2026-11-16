@@ -21,8 +21,10 @@
 {/snippet}
 
 {#snippet debt(d: SleepDebt | null | undefined)}
-  {#if d}
+  {@const asOf = d?.days?.at(-1)?.date}
+  {#if d && asOf}
     {d.valid ? `${F.minutesText(d.debt_min)} · ` : ''}<span class="pill {F.debtTone(d.state)}">{d.valid ? F.debtLabel(d.state) : t('today.debt_days', { n: d.valid_days ?? 0 })}</span>
+    <div class="small sub">{F.monthDay(asOf)}</div>
   {:else}—{/if}
 {/snippet}
 

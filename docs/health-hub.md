@@ -178,7 +178,7 @@ The phone builds two summaries and pushes each one to `POST /ingest/summary`:
 | `ring` | The ring rows and the app's journal only | Ring nights, scores, sleep debt, the formula VO2 max estimate (`fitness.source` is `formula`), activity, ring sessions and journal workouts |
 | `watch` | Apple Health only (`external.json`: Apple Watch sleep stages, heart rate, HRV SDNN, workouts, VO2 max) | Watch nights with a sleep score, scores per day (sleep, readiness), sleep debt, the measured VO2 max, Apple Health workouts |
 
-When Apple Health has no Apple Watch data, the phone sends no watch summary and the hub keeps the last one. In the MCP watch block, `age_min` is the minutes since the phone last pushed the watch summary, from its `generated_at`. On the Today table, a score cell gives its day when the score is not from the day shown. The Watch VO2 max cell gives the date of the measurement. The sleep debt cells give no day.
+When Apple Health has no Apple Watch data, the phone sends an empty watch summary: no nights, scores, sleep debt days, workouts or VO2 max. The Watch column then shows no values. In the MCP watch block, `age_min` is the minutes since the phone last pushed the watch summary, from its `generated_at`. On the Today table, a score cell gives its day when the score is not from the day shown. The Watch VO2 max cell gives the date of the measurement. A sleep debt cell gives the last day of its 14-day window.
 
 No value in one summary comes from the other source, and the hub does not merge
 them. The hub stores each kind on its own: the dedup ("unchanged, not stored") and
@@ -252,12 +252,13 @@ summary only.
   "note": "Computed on the phone from Apple Watch data only. …",
   "generated_at": 1794807307, "age_min": 12,
   "scores": { "ymd": "2026-11-15", "sleep": { "score": 76, "provisional": false }, "readiness": { "score": 81, "provisional": false } },
-  "sleep_debt": { "state": "mild", "debt_min": 95, "recent_shortfall_min": 20, "need_h": 7.5, "valid": true },
+  "sleep_debt": { "ymd": "2026-11-15", "state": "mild", "debt_min": 95, "recent_shortfall_min": 20, "need_h": 7.5, "valid": true },
   "vo2_max": { "value": 40.6, "date": "2026-11-10", "source_name": "Ken’s Apple Watch" }
 }
 ```
 
-A score, `sleep_debt` or `vo2_max` that the summary does not have is `null`. With no
+A score, `sleep_debt` or `vo2_max` that the summary does not have is `null`. A
+`sleep_debt` with no days in its window is `null`. With no
 Apple Watch summary, `summary` is `{ "available": false, "note": … }`. `get_sleep`
 and `get_trends` read the ring summary only.
 
@@ -385,8 +386,8 @@ oura push --to https://hub.example.com --tz-offset 8
 ```
 
 The command builds the ring summary and posts it. If `external.json` is next to
-`oura.db`, it then builds the watch summary and posts it. Without that file the Mac
-has no watch data, so it sends no watch summary. A summary that did not change is
+`oura.db`, it then builds the watch summary and posts it. Without that file it sends
+no watch summary, so the phone's watch summary stays. A summary that did not change is
 not stored twice, and the stored one takes the times of the new push. Run the command
 after each `oura sync`, or on a timer. The hub keeps the last 500 snapshots of each
 kind.

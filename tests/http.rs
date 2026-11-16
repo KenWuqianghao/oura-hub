@@ -51,7 +51,8 @@ fn watch_summary() -> Value {
         "nights": [{ "ymd": "2023-11-14", "start_unix": 1_699_974_000, "end_unix": 1_700_002_800, "in_bed_min": 480.0, "asleep_min": 440.0,
                      "deep_min": 60.0, "core_min": 280.0, "rem_min": 100.0, "awake_min": 40.0, "min_hr": 48.0, "hrv_sdnn_ms": 45.0, "sleep_score": 76 }],
         "scores": { "latest": "2023-11-14", "days": { "2023-11-14": { "sleep": score(76), "readiness": score(81) } } },
-        "sleep_debt": { "state": "moderate", "debt_min": 400.0, "recent_shortfall_min": 20.0, "need_h": 7.5, "valid": true },
+        "sleep_debt": { "state": "moderate", "debt_min": 400.0, "recent_shortfall_min": 20.0, "need_h": 7.5, "valid": true,
+                        "days": [{ "date": "2023-11-13" }, { "date": "2023-11-14" }] },
         "fitness": { "vo2max": 40.6, "date": "2023-11-10", "source_name": "Ken's Apple Watch" },
         "workouts": []
     })
@@ -148,6 +149,7 @@ async fn the_status_watch_block_carries_the_watch_summary_apart_from_the_ring() 
     assert_eq!(w["scores"]["ymd"], "2023-11-14");
     assert_eq!((w["scores"]["sleep"]["score"].as_i64(), w["scores"]["readiness"]["score"].as_i64()), (Some(76), Some(81)));
     assert_eq!((w["sleep_debt"]["state"].as_str(), w["sleep_debt"]["debt_min"].as_f64()), (Some("moderate"), Some(400.0)));
+    assert_eq!(w["sleep_debt"]["ymd"], "2023-11-14", "the sleep debt is as of its last day");
     assert_eq!((w["vo2_max"]["value"].as_f64(), w["vo2_max"]["date"].as_str()), (Some(40.6), Some("2023-11-10")));
     assert_eq!(st["sleep_debt"]["state"], "none", "the ring sleep debt stays the ring's");
 
