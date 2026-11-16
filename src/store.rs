@@ -1,5 +1,6 @@
-//! Snapshot storage. Every pushed summary is one row. The latest row feeds the
-//! MCP tools; the history keeps the freshness honest and lets a later step diff.
+//! Snapshot storage. Every pushed summary is one row of its kind (ring or watch).
+//! The latest row of each kind feeds the MCP tools; the history keeps the
+//! freshness honest and lets a later step diff.
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -16,9 +17,37 @@ pub struct Store {
     conn: Mutex<Connection>,
 }
 
+/// Which summary a snapshot is. The two are built from separate sources on the
+/// phone and are never merged: `Ring` from the ring and the app's journal, `Watch`
+/// from Apple Health (Apple Watch) only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SummaryKind {
+    Ring,
+    Watch,
+}
+
+impl SummaryKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SummaryKind::Ring => "ring",
+            SummaryKind::Watch => "watch",
+        }
+    }
+
+    /// The `kind` field of a pushed summary body.
+    pub fn of_body(body: &Value) -> Option<Self> {
+        match body.get("kind")?.as_str()? {
+            "ring" => Some(SummaryKind::Ring),
+            "watch" => Some(SummaryKind::Watch),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Snapshot {
     pub id: i64,
+    pub kind: SummaryKind,
     pub received_at: i64,
     pub generated_at: Option<f64>,
     pub body: Value,
@@ -26,9 +55,10 @@ pub struct Snapshot {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PutOutcome {
-    /// False when an identical body was already stored.
+    /// False when an identical body of the same kind was already stored.
     pub stored: bool,
     pub sha256: String,
+    /// Snapshots of this kind, before pruning.
     pub snapshots: i64,
 }
 
@@ -66,12 +96,14 @@ fn sample_row(r: &rusqlite::Row) -> rusqlite::Result<HealthSample> {
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS snapshots (
     id INTEGER PRIMARY KEY,
+    kind TEXT NOT NULL CHECK (kind IN ('ring', 'watch')),
     received_at INTEGER NOT NULL,
     generated_at REAL,
-    sha256 TEXT NOT NULL UNIQUE,
-    body TEXT NOT NULL
+    sha256 TEXT NOT NULL,
+    body TEXT NOT NULL,
+    UNIQUE (kind, sha256)
 );
-CREATE INDEX IF NOT EXISTS snapshots_received ON snapshots(received_at);
+CREATE INDEX IF NOT EXISTS snapshots_kind_received ON snapshots(kind, received_at);
 CREATE TABLE IF NOT EXISTS health_samples (
     uuid TEXT PRIMARY KEY,
     kind TEXT NOT NULL,
@@ -102,7 +134,26 @@ impl Store {
 
     fn init(conn: Connection) -> Result<Self> {
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
-        conn.execute_batch(SCHEMA)?;
+        let tx = conn.unchecked_transaction()?;
+        // Before summaries had a kind, every snapshot was the one merged summary. It
+        // becomes a ring snapshot: the ring summary keeps that shape.
+        let columns: Vec<String> = tx
+            .prepare("SELECT name FROM pragma_table_info('snapshots')")?
+            .query_map([], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        let unkinded = !columns.is_empty() && !columns.iter().any(|c| c == "kind");
+        if unkinded {
+            tx.execute_batch("ALTER TABLE snapshots RENAME TO snapshots_unkinded;")?;
+        }
+        tx.execute_batch(SCHEMA)?;
+        if unkinded {
+            tx.execute_batch(
+                "INSERT INTO snapshots(id, kind, received_at, generated_at, sha256, body)
+                     SELECT id, 'ring', received_at, generated_at, sha256, body FROM snapshots_unkinded;
+                 DROP TABLE snapshots_unkinded;",
+            )?;
+        }
+        tx.commit()?;
         Ok(Self { conn: Mutex::new(conn) })
     }
 
@@ -116,27 +167,27 @@ impl Store {
         hex::encode(Sha256::digest(content.to_string().as_bytes()))
     }
 
-    /// Store one summary. A body whose content (ignoring `generated_at`) is already
-    /// stored is not stored twice.
-    pub fn put(&self, body: &Value, received_at: i64) -> Result<PutOutcome> {
+    /// Store one summary of one kind. A body whose content (ignoring `generated_at`)
+    /// is already stored for that kind is not stored twice.
+    pub fn put(&self, kind: SummaryKind, body: &Value, received_at: i64) -> Result<PutOutcome> {
         let text = serde_json::to_string(body)?;
         let sha256 = Self::content_sha256(body);
         let generated_at = body.get("generated_at").and_then(Value::as_f64);
         let conn = self.conn.lock().unwrap();
         let inserted = conn.execute(
-            "INSERT OR IGNORE INTO snapshots(received_at, generated_at, sha256, body) VALUES (?1, ?2, ?3, ?4)",
-            params![received_at, generated_at, sha256, text],
+            "INSERT OR IGNORE INTO snapshots(kind, received_at, generated_at, sha256, body) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![kind.as_str(), received_at, generated_at, sha256, text],
         )?;
-        let snapshots: i64 = conn.query_row("SELECT COUNT(*) FROM snapshots", [], |r| r.get(0))?;
+        let snapshots: i64 = conn.query_row("SELECT COUNT(*) FROM snapshots WHERE kind = ?1", params![kind.as_str()], |r| r.get(0))?;
         Ok(PutOutcome { stored: inserted == 1, sha256, snapshots })
     }
 
-    /// The most recently received snapshot.
-    pub fn latest(&self) -> Result<Option<Snapshot>> {
+    /// The most recently received snapshot of one kind.
+    pub fn latest(&self, kind: SummaryKind) -> Result<Option<Snapshot>> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, received_at, generated_at, body FROM snapshots ORDER BY received_at DESC, id DESC LIMIT 1",
-            [],
+            "SELECT id, received_at, generated_at, body FROM snapshots WHERE kind = ?1 ORDER BY received_at DESC, id DESC LIMIT 1",
+            params![kind.as_str()],
             |r| {
                 let text: String = r.get(3)?;
                 Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, Option<f64>>(2)?, text))
@@ -144,11 +195,12 @@ impl Store {
         )
         .optional()?
         .map(|(id, received_at, generated_at, text)| {
-            Ok(Snapshot { id, received_at, generated_at, body: serde_json::from_str(&text)? })
+            Ok(Snapshot { id, kind, received_at, generated_at, body: serde_json::from_str(&text)? })
         })
         .transpose()
     }
 
+    /// Snapshots of every kind.
     pub fn count(&self) -> Result<i64> {
         let conn = self.conn.lock().unwrap();
         Ok(conn.query_row("SELECT COUNT(*) FROM snapshots", [], |r| r.get(0))?)
@@ -341,21 +393,26 @@ impl Store {
         Ok(rows)
     }
 
-    /// The UTC offset of the latest snapshot in seconds; 0 when there is none.
+    /// The UTC offset of the latest ring snapshot in seconds; 0 when there is none.
     pub fn latest_tz_s(&self) -> Result<i64> {
         let conn = self.conn.lock().unwrap();
         let hours: Option<Option<i64>> = conn
-            .query_row("SELECT CAST(json_extract(body, '$.tz') AS INTEGER) FROM snapshots ORDER BY received_at DESC, id DESC LIMIT 1", [], |r| r.get(0))
+            .query_row(
+                "SELECT CAST(json_extract(body, '$.tz') AS INTEGER) FROM snapshots WHERE kind = 'ring' ORDER BY received_at DESC, id DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
             .optional()?;
         Ok(hours.flatten().unwrap_or(0) * 3600)
     }
 
-    /// Keep only the newest `keep` snapshots. Returns the number removed.
-    pub fn prune(&self, keep: i64) -> Result<usize> {
+    /// Keep only the newest `keep` snapshots of one kind. Returns the number removed.
+    pub fn prune(&self, kind: SummaryKind, keep: i64) -> Result<usize> {
         let conn = self.conn.lock().unwrap();
         Ok(conn.execute(
-            "DELETE FROM snapshots WHERE id NOT IN (SELECT id FROM snapshots ORDER BY received_at DESC, id DESC LIMIT ?1)",
-            params![keep],
+            "DELETE FROM snapshots WHERE kind = ?1
+               AND id NOT IN (SELECT id FROM snapshots WHERE kind = ?1 ORDER BY received_at DESC, id DESC LIMIT ?2)",
+            params![kind.as_str(), keep],
         )?)
     }
 }
@@ -366,25 +423,66 @@ mod tests {
     use serde_json::json;
     use crate::health::{DayValue, HealthBatch, HealthSample};
 
+    use SummaryKind::{Ring, Watch};
+
     #[test]
     fn put_latest_and_dedup() {
         let s = Store::in_memory().unwrap();
-        assert!(s.latest().unwrap().is_none());
-        let a = s.put(&json!({ "generated_at": 10.0, "nights": [] }), 100).unwrap();
+        assert!(s.latest(Ring).unwrap().is_none());
+        let a = s.put(Ring, &json!({ "generated_at": 10.0, "nights": [] }), 100).unwrap();
         assert!(a.stored);
         assert_eq!(a.snapshots, 1);
-        let again = s.put(&json!({ "generated_at": 10.0, "nights": [] }), 101).unwrap();
+        let again = s.put(Ring, &json!({ "generated_at": 10.0, "nights": [] }), 101).unwrap();
         assert!(!again.stored);
         assert_eq!(again.snapshots, 1);
-        let restamped = s.put(&json!({ "generated_at": 11.0, "nights": [] }), 101).unwrap();
+        let restamped = s.put(Ring, &json!({ "generated_at": 11.0, "nights": [] }), 101).unwrap();
         assert!(!restamped.stored, "a new generated_at alone is not new content");
         assert_eq!(restamped.snapshots, 1);
-        let b = s.put(&json!({ "generated_at": 20.0, "nights": [{ "ymd": "2023-11-14" }] }), 102).unwrap();
+        let b = s.put(Ring, &json!({ "generated_at": 20.0, "nights": [{ "ymd": "2023-11-14" }] }), 102).unwrap();
         assert!(b.stored, "new content is stored");
-        let latest = s.latest().unwrap().unwrap();
+        let latest = s.latest(Ring).unwrap().unwrap();
         assert_eq!(latest.received_at, 102);
         assert_eq!(latest.generated_at, Some(20.0));
         assert_eq!(latest.body["generated_at"], 20.0);
+    }
+
+    #[test]
+    fn each_kind_has_its_own_latest_and_dedup() {
+        let s = Store::in_memory().unwrap();
+        let body = json!({ "nights": [] });
+        assert!(s.put(Ring, &body, 100).unwrap().stored);
+        let watch = s.put(Watch, &body, 101).unwrap();
+        assert!(watch.stored, "the same content of the other kind is stored");
+        assert_eq!(watch.snapshots, 1);
+        assert!(s.put(Watch, &json!({ "nights": [1] }), 102).unwrap().stored);
+        assert_eq!(s.latest(Ring).unwrap().unwrap().received_at, 100, "a newer watch summary does not hide the ring one");
+        let w = s.latest(Watch).unwrap().unwrap();
+        assert_eq!((w.kind, w.received_at), (Watch, 102));
+        assert_eq!(s.count().unwrap(), 3);
+    }
+
+    #[test]
+    fn opening_an_old_store_keeps_its_snapshots_as_ring() {
+        let path = std::env::temp_dir().join(format!("oura-hub-migrate-{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE snapshots (id INTEGER PRIMARY KEY, received_at INTEGER NOT NULL, generated_at REAL,
+                                         sha256 TEXT NOT NULL UNIQUE, body TEXT NOT NULL);
+                 CREATE INDEX snapshots_received ON snapshots(received_at);
+                 INSERT INTO snapshots(received_at, generated_at, sha256, body) VALUES (7, 1.0, 'abc', '{\"tz\":2,\"nights\":[]}');",
+            )
+            .unwrap();
+        }
+        let s = Store::open(&path).unwrap();
+        let old = s.latest(Ring).unwrap().unwrap();
+        assert_eq!((old.received_at, old.body["tz"].as_i64()), (7, Some(2)));
+        assert!(s.latest(Watch).unwrap().is_none());
+        assert_eq!(s.latest_tz_s().unwrap(), 7200);
+        drop(s);
+        assert_eq!(Store::open(&path).unwrap().count().unwrap(), 1, "a second open changes nothing");
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
@@ -532,18 +630,21 @@ mod tests {
         let k = &s.health_kinds().unwrap()[0];
         assert_eq!((k.samples, k.first_start_unix, k.has_values), (3, Some(D), false));
         assert_eq!(s.latest_tz_s().unwrap(), 0);
-        s.put(&json!({ "tz": 2, "nights": [] }), 5).unwrap();
-        assert_eq!(s.latest_tz_s().unwrap(), 7200);
+        s.put(Ring, &json!({ "tz": 2, "nights": [] }), 5).unwrap();
+        s.put(Watch, &json!({ "tz": -7, "nights": [] }), 6).unwrap();
+        assert_eq!(s.latest_tz_s().unwrap(), 7200, "the offset comes from the ring summary");
     }
 
     #[test]
-    fn prune_keeps_the_newest() {
+    fn prune_keeps_the_newest_of_each_kind() {
         let s = Store::in_memory().unwrap();
         for i in 0..5 {
-            s.put(&json!({ "generated_at": i, "nights": [i] }), 1000 + i).unwrap();
+            s.put(Ring, &json!({ "generated_at": i, "nights": [i] }), 1000 + i).unwrap();
         }
-        assert_eq!(s.prune(2).unwrap(), 3);
-        assert_eq!(s.count().unwrap(), 2);
-        assert_eq!(s.latest().unwrap().unwrap().received_at, 1004);
+        s.put(Watch, &json!({ "nights": [] }), 900).unwrap();
+        assert_eq!(s.prune(Ring, 2).unwrap(), 3);
+        assert_eq!(s.count().unwrap(), 3, "the older watch snapshot stays");
+        assert_eq!(s.latest(Ring).unwrap().unwrap().received_at, 1004);
+        assert_eq!(s.latest(Watch).unwrap().unwrap().received_at, 900);
     }
 }

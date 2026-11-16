@@ -1,7 +1,8 @@
 //! The always-on health hub.
 //!
-//! Clients push a `build_summary` JSON to `POST /ingest/summary` and the raw ring
-//! rows to `POST /ingest/events`. Agents read the summary through MCP at
+//! Clients push two summaries to `POST /ingest/summary`, the ring one and the
+//! Apple Watch one, each marked by its `kind`, and the raw ring rows to
+//! `POST /ingest/events`. Agents read the summary through MCP at
 //! `POST /mcp/<token>` (or `POST /mcp` with a bearer token). The raw rows live in a
 //! second SQLite file with the `oura-store` schema, so the hub is a full replica of
 //! the ring data: `oura dashboard --db` runs on it, and `GET /export/events` gives
@@ -30,9 +31,9 @@ use serde_json::{json, Value};
 use health::HealthBatch;
 use mcp::{Reply, Server, Tool};
 use oura_store::replication::ExportBatch;
-use store::Store;
+use store::{Store, SummaryKind};
 
-/// Snapshots kept after each push.
+/// Snapshots of each kind kept after each push.
 pub const KEEP_SNAPSHOTS: i64 = 500;
 /// A summary with per-night series is a few MB. Allow more before it hurts.
 pub const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
@@ -298,7 +299,7 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
         let now = now_unix();
         // Apple Health tools do not need a ring summary.
         let tz_s = |snap: Option<&Value>| snap.and_then(|s| s["tz"].as_i64()).unwrap_or(0) * 3600;
-        let watch = |snap: Option<&Value>| -> Result<Value, String> {
+        let watch = |ring: Option<&Value>| -> Result<Value, String> {
             // The last 7 days for totals and means, plus the newest row of every kind
             // so a sparse vital (VO2 max is weekly at best) still has a "latest".
             let mut rows = store_for_handler
@@ -310,10 +311,10 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
                     rows.push(r);
                 }
             }
-            Ok(health::watch_status(&rows, now, tz_s(snap)))
+            Ok(health::watch_status(&rows, now, tz_s(ring)))
         };
         if name == "get_watch" {
-            let snap = store_for_handler.latest().map_err(|e| format!("store error: {e}"))?;
+            let snap = store_for_handler.latest(SummaryKind::Ring).map_err(|e| format!("store error: {e}"))?;
             return watch(snap.as_ref().map(|s| &s.body));
         }
         if name == "list_health_kinds" {
@@ -358,9 +359,9 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
             return Ok(json!({ "kind": kind, "count": rows.len(), "samples": rows }));
         }
         let snap = store_for_handler
-            .latest()
+            .latest(SummaryKind::Ring)
             .map_err(|e| format!("store error: {e}"))?
-            .ok_or_else(|| "no health data yet: nothing has been pushed to this hub".to_string())?;
+            .ok_or_else(|| "no ring summary yet: the phone has not pushed one to this hub".to_string())?;
         let s = &snap.body;
         match name {
             "get_status_now" => {
@@ -415,6 +416,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/", get(web::index))
         .route("/api/session", get(web::session))
         .route("/api/summary", get(web::summary))
+        .route("/api/watch-summary", get(web::watch_summary))
         .route("/api/tool/{name}", post(web::tool))
         .route("/api/agent/providers", get(web::agent_providers))
         .route("/api/agent/ask", post(web::agent_ask))
@@ -429,7 +431,7 @@ async fn health(State(st): State<Arc<AppState>>, headers: HeaderMap) -> Response
     if !bearer(&headers).is_some_and(|t| token_matches(t, &st.token)) {
         return Json(json!({ "ok": true })).into_response();
     }
-    let latest = st.store.latest().ok().flatten();
+    let latest = st.store.latest(SummaryKind::Ring).ok().flatten();
     let (ring_ids, serials) = {
         let ring = st.ring.lock().unwrap();
         (ring.max_ids().unwrap_or((0, 0)), ring.device_serials().unwrap_or_default())
@@ -526,14 +528,18 @@ async fn ingest(State(st): State<Arc<AppState>>, headers: HeaderMap, body: Bytes
         Ok(v) => v,
         Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "error": format!("invalid JSON: {e}") }))).into_response(),
     };
-    if !value.is_object() || value.get("nights").is_none() {
-        return (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": "expected a build_summary object with a nights field" }))).into_response();
+    let Some(kind) = SummaryKind::of_body(&value) else {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "kind must be \"ring\" or \"watch\"" }))).into_response();
+    };
+    if value.get("nights").is_none() {
+        return (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": "expected a summary object with a nights field" }))).into_response();
     }
     let received_at = now_unix();
-    match st.store.put(&value, received_at) {
+    match st.store.put(kind, &value, received_at) {
         Ok(out) => {
-            let _ = st.store.prune(KEEP_SNAPSHOTS);
+            let _ = st.store.prune(kind, KEEP_SNAPSHOTS);
             Json(json!({
+                "kind": kind.as_str(),
                 "stored": out.stored,
                 "sha256": out.sha256,
                 "received_at": received_at,

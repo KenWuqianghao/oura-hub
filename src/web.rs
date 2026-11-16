@@ -1,6 +1,6 @@
 //! The web UI and its JSON API. The UI is a single-page app built into `web/dist`
 //! and embedded in the binary. The API is the same data the MCP tools return,
-//! plus the raw latest summary, behind the same bearer token.
+//! plus the raw latest ring and watch summaries, behind the same bearer token.
 
 use std::sync::Arc;
 
@@ -20,6 +20,7 @@ use crate::agent::{Event, Provider};
 use rust_embed::RustEmbed;
 use serde_json::{json, Value};
 
+use crate::store::{Snapshot, SummaryKind};
 use crate::{bearer, token_matches, AppState};
 
 #[derive(RustEmbed)]
@@ -75,14 +76,29 @@ pub async fn session(State(st): State<Arc<AppState>>, headers: HeaderMap) -> Res
     Json(json!({ "ok": true, "name": st.mcp.name, "version": st.mcp.version })).into_response()
 }
 
-/// The latest summary snapshot as pushed, with its timestamps.
+fn snapshot_json(s: Snapshot) -> Value {
+    json!({ "received_at": s.received_at, "generated_at": s.generated_at, "body": s.body })
+}
+
+/// The latest ring summary as pushed, with its timestamps.
 pub async fn summary(State(st): State<Arc<AppState>>, headers: HeaderMap) -> Response {
     if !authed(&st, &headers) {
         return unauthorized();
     }
-    match st.store.latest() {
-        Ok(Some(s)) => Json(json!({ "received_at": s.received_at, "generated_at": s.generated_at, "body": s.body })).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({ "error": "no summary has been pushed yet" }))).into_response(),
+    match st.store.latest(SummaryKind::Ring) {
+        Ok(Some(s)) => Json(snapshot_json(s)).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, Json(json!({ "error": "no ring summary has been pushed yet" }))).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
+/// The latest Apple Watch summary as pushed, or `null` when none was pushed.
+pub async fn watch_summary(State(st): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if !authed(&st, &headers) {
+        return unauthorized();
+    }
+    match st.store.latest(SummaryKind::Watch) {
+        Ok(s) => Json(s.map(snapshot_json)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": e.to_string() }))).into_response(),
     }
 }
