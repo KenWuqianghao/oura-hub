@@ -51,6 +51,11 @@ the token and the data in `~/oura-hub-data` (`hub.db`, `oura.db`). To back up, c
 that folder. To change the token, delete `~/.config/oura-hub.env` and run the script
 again.
 
+**Update order.** Deploy the hub before you install a phone build that sends `kind`.
+An older hub stores the watch summary as its only summary. Snapshots stored before
+the hub knew `kind` are kept as `ring`. They hold the old merged values until the
+phone pushes its first new ring summary.
+
 **Connect page.** It shows a QR code with `openoura://hub?url=<hub>&token=<token>`.
 Scan it with the iPhone Camera, tap **Open in Open Oura**, then **Connect**. The app
 asks first, because any web page can make such a link. The page also gives the
@@ -371,14 +376,20 @@ export OURA_HUB_TOKEN=<token>
 oura push --to https://hub.example.com --tz-offset 8
 ```
 
-The command builds the ring summary the dashboard shows, then posts it. A summary
-that did not change is not stored twice. Run it after each `oura sync`, or on a
-timer. The hub keeps the last 500 snapshots of each kind.
+The command builds the ring summary and posts it. If `external.json` is next to
+`oura.db`, it then builds the watch summary and posts it. Without that file the Mac
+has no watch data, so it sends no watch summary. A summary that did not change is
+not stored twice. Run the command after each `oura sync`, or on a timer. The hub
+keeps the last 500 snapshots of each kind.
 
-The reply shows what the hub stored. `snapshots` counts the snapshots of that kind:
+The command prints the hub's reply for each kind. `watch` is not there when no watch
+summary was sent. `snapshots` counts the snapshots of that kind:
 
 ```json
-{ "kind": "ring", "stored": true, "generated_at": 1758500000.0, "received_at": 1758500012, "snapshots": 12 }
+{
+  "ring": { "kind": "ring", "stored": true, "sha256": "…", "received_at": 1758500012, "generated_at": 1758500000.0, "snapshots": 12 },
+  "watch": { "kind": "watch", "stored": false, "sha256": "…", "received_at": 1758500013, "generated_at": 1758500000.0, "snapshots": 4 }
+}
 ```
 
 ## The ring replica
