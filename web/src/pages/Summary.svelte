@@ -46,7 +46,6 @@
   const debt = $derived(s.sleep_debt)
   const ill = $derived(s.illness)
   const dayScores = $derived(s.scores?.days?.[day] ?? {})
-  // Apple Health workouts carry their source name; the ring summary's own are the ring's or typed in the app
   const workouts = $derived([...(hub.dayData?.workouts ?? []), ...F.workoutsOn(s, day).map(wk => ({ ...wk, source: t(wk.source === 'manual' ? 'today.source_manual' : 'today.ring') }))])
   const ringAgo = $derived(s.device?.fresh_hours != null && hub.receivedAt ? F.ago(hub.receivedAt - s.device.fresh_hours * 3600) : '—')
   const watchAgo = $derived(w?.freshness ? F.ago(w.freshness.newest_sample_unix) : '—')

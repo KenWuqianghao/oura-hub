@@ -1,4 +1,3 @@
-// Page state: the token, the latest ring and watch summaries, the Apple Health picture, load status.
 import { api, getToken, setToken, type Summary, type Watch, type WatchSummary, type HealthInfo, type HealthSample, ApiError } from './api'
 import { dayStartMs, todayYmd } from './fmt'
 import { t } from './i18n.svelte'
@@ -13,7 +12,6 @@ export const hub = $state({
   summary: null as Summary | null,
   receivedAt: 0,
   watch: null as Watch | null,
-  /** The latest watch summary: Apple Watch scores, sleep debt, VO2 max. */
   watchSummary: null as WatchSummary | null,
   info: null as HealthInfo | null,
   day: '' as string,

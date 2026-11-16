@@ -131,7 +131,6 @@ export function nightForDay(s: Summary, day: string): Night | undefined {
   if (c.length) return c.reduce((a, b) => ((a.in_bed_h ?? 0) >= (b.in_bed_h ?? 0) ? a : b))
   return s.nights.find(n => !n.ymd && (n.date ?? '').endsWith(day.slice(5)))
 }
-/** The ring summary workouts that start on `day`, as times. A model detection below 0.5 is not a workout. */
 export function workoutsOn(s: Summary, day: string): { start: number; end: number; label: string; source: string }[] {
   return (s.workouts ?? []).filter(w => (w.isWorkout ?? 1) >= 0.5 && w.start.slice(0, 10) === day).map(w => {
     const start = w.start_unix != null ? w.start_unix * 1000 : hmOnDay(day, w.start.slice(-5))

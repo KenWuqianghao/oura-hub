@@ -12,8 +12,6 @@
   import * as F from '../lib/fmt'
   import type { Night } from '../lib/api'
 
-  // without a ring summary the page still shows the Apple Health history. A ring night's score comes from the ring
-  // summary only; an Apple Watch night in the history takes its score from the watch summary
   const s = $derived(hub.summary)
   const w = $derived(hub.watch)
   let shown = $state(8)

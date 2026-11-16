@@ -90,8 +90,6 @@ export interface SleepDebt { debt_min: number; recent_shortfall_min: number; val
 export interface Illness { available: boolean; status: string; traffic_light: string; score?: number; date?: string; days_with_data?: number; biomarkers?: any[] }
 export interface Contributor { key: string; name: string; weight: number; score: number; value?: number | null; unit?: string; source?: string }
 export interface Score { score: number; provisional?: boolean; contributors?: Contributor[]; basis?: string }
-/** A ring summary workout. The phone sends either its model's detections (`durationMin`, `isWorkout`) or the
- *  summary's own list (`start_unix`, `end_unix`, `duration_min`, `source`). `source` is `ring`, `ring_met`, or `manual`. */
 export interface Workout {
   start: string; end: string; label: string; source?: string
   durationMin?: number; isWorkout?: number; start_unix?: number; end_unix?: number; duration_min?: number
@@ -108,15 +106,12 @@ export interface Summary {
 }
 
 export interface Scores { latest?: string | null; basis?: string; days: Record<string, Record<string, Score>> }
-/** A summary as the hub stored it. */
 export interface Pushed<T> { received_at: number; generated_at: number | null; body: T }
-/** One Apple Watch night of the watch summary. `ymd` is the local wake day. */
 export interface WatchNight {
   ymd: string; start_unix: number; end_unix: number
   in_bed_min: number; asleep_min: number; deep_min: number; core_min: number; rem_min: number; awake_min: number
   min_hr: number | null; hrv_sdnn_ms: number | null; sleep_score: number | null
 }
-/** The summary that the phone builds from Apple Health only. It is never merged with the ring summary. */
 export interface WatchSummary {
   kind: 'watch'; generated_at?: number; tz?: number
   nights: WatchNight[]

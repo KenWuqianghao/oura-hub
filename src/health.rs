@@ -359,8 +359,6 @@ pub fn watch_status(rows: &[HealthSample], now_unix: i64, tz_s: i64) -> Value {
     })
 }
 
-/// The latest scores, sleep debt and VO2 max of the Apple Watch summary, the one
-/// the phone builds from Apple Health only.
 pub fn watch_summary_status(summary: Option<&Value>, now_unix: i64) -> Value {
     let Some(s) = summary else {
         return json!({ "available": false, "note": "no Apple Watch summary has been pushed" });

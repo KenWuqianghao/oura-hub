@@ -1,6 +1,4 @@
 <script lang="ts">
-  // The scores, sleep debt, and VO2 max of the ring summary and of the watch summary, in
-  // two columns. The two summaries are separate: a cell never shows a value of the other one.
   import Num from '../Num.svelte'
   import type { Scores, SleepDebt, Summary, WatchSummary } from '../../lib/api'
   import { t, i18n } from '../../lib/i18n.svelte'

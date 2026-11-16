@@ -33,7 +33,6 @@ use mcp::{Reply, Server, Tool};
 use oura_store::replication::ExportBatch;
 use store::{Store, SummaryKind};
 
-/// Snapshots of each kind kept after each push.
 pub const KEEP_SNAPSHOTS: i64 = 500;
 /// A summary with per-night series is a few MB. Allow more before it hurts.
 pub const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;

@@ -1,7 +1,3 @@
-//! Snapshot storage. Every pushed summary is one row of its kind (ring or watch).
-//! The latest row of each kind feeds the MCP tools; the history keeps the
-//! freshness honest and lets a later step diff.
-
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -17,9 +13,6 @@ pub struct Store {
     conn: Mutex<Connection>,
 }
 
-/// Which summary a snapshot is. The two are built from separate sources on the
-/// phone and are never merged: `Ring` from the ring and the app's journal, `Watch`
-/// from Apple Health (Apple Watch) only.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SummaryKind {
     Ring,
@@ -34,7 +27,6 @@ impl SummaryKind {
         }
     }
 
-    /// The `kind` field of a pushed summary body.
     pub fn of_body(body: &Value) -> Option<Self> {
         match body.get("kind")?.as_str()? {
             "ring" => Some(SummaryKind::Ring),
@@ -55,10 +47,8 @@ pub struct Snapshot {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PutOutcome {
-    /// False when an identical body of the same kind was already stored.
     pub stored: bool,
     pub sha256: String,
-    /// Snapshots of this kind, before pruning.
     pub snapshots: i64,
 }
 
@@ -135,8 +125,6 @@ impl Store {
     fn init(conn: Connection) -> Result<Self> {
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;
         let tx = conn.unchecked_transaction()?;
-        // A snapshot from before summaries had a kind is the old merged summary, with
-        // Apple Watch values in it. It is kept as ring until the phone pushes a new one.
         let columns: Vec<String> = tx
             .prepare("SELECT name FROM pragma_table_info('snapshots')")?
             .query_map([], |r| r.get(0))?
@@ -167,8 +155,6 @@ impl Store {
         hex::encode(Sha256::digest(content.to_string().as_bytes()))
     }
 
-    /// Store one summary of one kind. A body whose content (ignoring `generated_at`)
-    /// is already stored for that kind is not stored twice.
     pub fn put(&self, kind: SummaryKind, body: &Value, received_at: i64) -> Result<PutOutcome> {
         let text = serde_json::to_string(body)?;
         let sha256 = Self::content_sha256(body);
@@ -182,7 +168,6 @@ impl Store {
         Ok(PutOutcome { stored: inserted == 1, sha256, snapshots })
     }
 
-    /// The most recently received snapshot of one kind.
     pub fn latest(&self, kind: SummaryKind) -> Result<Option<Snapshot>> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
@@ -200,7 +185,6 @@ impl Store {
         .transpose()
     }
 
-    /// Snapshots of every kind.
     pub fn count(&self) -> Result<i64> {
         let conn = self.conn.lock().unwrap();
         Ok(conn.query_row("SELECT COUNT(*) FROM snapshots", [], |r| r.get(0))?)
@@ -393,7 +377,6 @@ impl Store {
         Ok(rows)
     }
 
-    /// The UTC offset of the latest ring snapshot in seconds; 0 when there is none.
     pub fn latest_tz_s(&self) -> Result<i64> {
         let conn = self.conn.lock().unwrap();
         let hours: Option<Option<i64>> = conn
@@ -406,7 +389,6 @@ impl Store {
         Ok(hours.flatten().unwrap_or(0) * 3600)
     }
 
-    /// Keep only the newest `keep` snapshots of one kind. Returns the number removed.
     pub fn prune(&self, kind: SummaryKind, keep: i64) -> Result<usize> {
         let conn = self.conn.lock().unwrap();
         Ok(conn.execute(
