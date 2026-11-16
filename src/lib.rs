@@ -33,7 +33,7 @@ use mcp::{Reply, Server, Tool};
 use oura_store::replication::ExportBatch;
 use store::{Store, SummaryKind};
 
-pub const KEEP_SNAPSHOTS: i64 = 500;
+pub const KEEP_SNAPSHOTS_PER_KIND: i64 = 500;
 /// A summary with per-night series is a few MB. Allow more before it hurts.
 pub const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 
@@ -103,7 +103,7 @@ impl DayWindow {
     fn tz_from_args(store: &Store, args: &Value) -> Result<i64, String> {
         match args["tz_offset_s"].as_i64() {
             Some(tz) => Ok(tz.clamp(-18 * 3600, 18 * 3600)),
-            None => store.latest_tz_s().map_err(|e| format!("store error: {e}")),
+            None => store.latest_ring_tz_s().map_err(|e| format!("store error: {e}")),
         }
     }
 
@@ -440,7 +440,7 @@ async fn health(State(st): State<Arc<AppState>>, headers: HeaderMap) -> Response
     };
     Json(json!({
         "ok": true,
-        "snapshots": st.store.count().unwrap_or(0),
+        "snapshots": st.store.count_all().unwrap_or(0),
         "latest_received_at": latest.as_ref().map(|s| s.received_at),
         "latest_generated_at": latest.as_ref().and_then(|s| s.generated_at),
         "ring": {
@@ -539,14 +539,14 @@ async fn ingest(State(st): State<Arc<AppState>>, headers: HeaderMap, body: Bytes
     let received_at = now_unix();
     match st.store.put(kind, &value, received_at) {
         Ok(out) => {
-            let _ = st.store.prune(kind, KEEP_SNAPSHOTS);
+            let _ = st.store.prune(kind, KEEP_SNAPSHOTS_PER_KIND);
             Json(json!({
                 "kind": kind.as_str(),
                 "stored": out.stored,
                 "sha256": out.sha256,
                 "received_at": received_at,
                 "generated_at": value.get("generated_at"),
-                "snapshots": out.snapshots.min(KEEP_SNAPSHOTS),
+                "snapshots": out.snapshots.min(KEEP_SNAPSHOTS_PER_KIND),
             }))
             .into_response()
         }

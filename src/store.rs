@@ -185,7 +185,7 @@ impl Store {
         .transpose()
     }
 
-    pub fn count(&self) -> Result<i64> {
+    pub fn count_all(&self) -> Result<i64> {
         let conn = self.conn.lock().unwrap();
         Ok(conn.query_row("SELECT COUNT(*) FROM snapshots", [], |r| r.get(0))?)
     }
@@ -380,7 +380,7 @@ impl Store {
         Ok(rows)
     }
 
-    pub fn latest_tz_s(&self) -> Result<i64> {
+    pub fn latest_ring_tz_s(&self) -> Result<i64> {
         let conn = self.conn.lock().unwrap();
         let hours: Option<Option<i64>> = conn
             .query_row(
@@ -443,7 +443,7 @@ mod tests {
         assert_eq!(s.latest(Ring).unwrap().unwrap().received_at, 100, "a newer watch summary does not hide the ring one");
         let w = s.latest(Watch).unwrap().unwrap();
         assert_eq!((w.kind, w.received_at), (Watch, 102));
-        assert_eq!(s.count().unwrap(), 3);
+        assert_eq!(s.count_all().unwrap(), 3);
     }
 
     #[test]
@@ -464,9 +464,9 @@ mod tests {
         let old = s.latest(Ring).unwrap().unwrap();
         assert_eq!((old.received_at, old.body["tz"].as_i64()), (7, Some(2)));
         assert!(s.latest(Watch).unwrap().is_none());
-        assert_eq!(s.latest_tz_s().unwrap(), 7200);
+        assert_eq!(s.latest_ring_tz_s().unwrap(), 7200);
         drop(s);
-        assert_eq!(Store::open(&path).unwrap().count().unwrap(), 1, "a second open changes nothing");
+        assert_eq!(Store::open(&path).unwrap().count_all().unwrap(), 1, "a second open changes nothing");
         let _ = std::fs::remove_file(&path);
     }
 
@@ -618,10 +618,10 @@ mod tests {
         ]);
         let k = &s.health_kinds().unwrap()[0];
         assert_eq!((k.samples, k.first_start_unix, k.has_values), (3, Some(D), false));
-        assert_eq!(s.latest_tz_s().unwrap(), 0);
+        assert_eq!(s.latest_ring_tz_s().unwrap(), 0);
         s.put(Ring, &json!({ "tz": 2, "nights": [] }), 5).unwrap();
         s.put(Watch, &json!({ "tz": -7, "nights": [] }), 6).unwrap();
-        assert_eq!(s.latest_tz_s().unwrap(), 7200, "the offset comes from the ring summary");
+        assert_eq!(s.latest_ring_tz_s().unwrap(), 7200, "the offset comes from the ring summary");
     }
 
     #[test]
@@ -632,7 +632,7 @@ mod tests {
         }
         s.put(Watch, &json!({ "nights": [] }), 900).unwrap();
         assert_eq!(s.prune(Ring, 2).unwrap(), 3);
-        assert_eq!(s.count().unwrap(), 3, "the older watch snapshot stays");
+        assert_eq!(s.count_all().unwrap(), 3, "the older watch snapshot stays");
         assert_eq!(s.latest(Ring).unwrap().unwrap().received_at, 1004);
         assert_eq!(s.latest(Watch).unwrap().unwrap().received_at, 900);
     }
