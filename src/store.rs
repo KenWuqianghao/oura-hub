@@ -160,10 +160,12 @@ impl Store {
         let sha256 = Self::content_sha256(body);
         let generated_at = body.get("generated_at").and_then(Value::as_f64);
         let conn = self.conn.lock().unwrap();
-        // Known content takes the new push's stamps, so `latest` and the age follow the
-        // last push. An upsert cannot say if it inserted, and `stored` must.
+        // Known content takes the new push's stamps and the next id, so `latest` and the
+        // age follow the last push, also within one second. An upsert cannot say if it
+        // inserted, and `stored` must.
         let restamped = conn.execute(
-            "UPDATE snapshots SET received_at = ?3, generated_at = ?4, body = ?5 WHERE kind = ?1 AND sha256 = ?2",
+            "UPDATE snapshots SET id = (SELECT MAX(id) + 1 FROM snapshots), received_at = ?3, generated_at = ?4, body = ?5 \
+             WHERE kind = ?1 AND sha256 = ?2",
             params![kind.as_str(), sha256, received_at, generated_at, text],
         )?;
         if restamped == 0 {
@@ -462,6 +464,18 @@ mod tests {
         s.prune(Ring, 1).unwrap();
         assert_eq!(s.latest(Ring).unwrap().unwrap().body, a, "retention keeps the re-pushed content");
         assert_eq!(s.count_all().unwrap(), 1);
+    }
+
+    #[test]
+    fn content_pushed_again_in_the_same_second_is_the_latest() {
+        let s = Store::in_memory().unwrap();
+        let a = json!({ "nights": ["a"] });
+        s.put(Ring, &a, 100).unwrap();
+        s.put(Ring, &json!({ "nights": ["b"] }), 200).unwrap();
+        s.put(Ring, &a, 200).unwrap();
+        assert_eq!(s.latest(Ring).unwrap().unwrap().body, a);
+        s.prune(Ring, 1).unwrap();
+        assert_eq!(s.latest(Ring).unwrap().unwrap().body, a, "retention keeps the re-pushed content");
     }
 
     #[test]
