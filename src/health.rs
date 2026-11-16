@@ -76,6 +76,11 @@ pub struct Workout {
 /// plus this: a 23:00 segment and a 07:00 segment land on the same day.
 pub const SLEEP_DAY_SHIFT_S: i64 = 6 * 3600;
 
+/// The `device` the phone sends for a sample an Apple Watch measured (HealthKit
+/// `HKDevice.model`). HealthKit gives a sleep row no device, so a sleep source is a
+/// watch when its heart rate rows carry this device.
+pub const WATCH_DEVICE: &str = "Watch";
+
 /// The seconds one source logged in one sleep category on one night.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SleepSlice {
@@ -83,6 +88,8 @@ pub struct SleepSlice {
     pub day: i64,
     pub source_bundle: String,
     pub source_name: Option<String>,
+    /// The source wrote heart rate from `WATCH_DEVICE`.
+    pub watch: bool,
     pub category: String,
     pub seconds: f64,
     pub first_start_unix: f64,
@@ -138,6 +145,7 @@ pub fn daily_json(def: &KindDef, days: &[DayValue]) -> Value {
 #[derive(Default)]
 struct SourceNight<'a> {
     name: Option<&'a str>,
+    watch: bool,
     start: f64,
     end: f64,
     seconds: BTreeMap<&'a str, f64>,
@@ -164,6 +172,7 @@ pub fn sleep_nights(slices: &[SleepSlice]) -> Vec<Value> {
             ..Default::default()
         });
         n.name = n.name.or(s.source_name.as_deref());
+        n.watch |= s.watch;
         n.start = n.start.min(s.first_start_unix);
         n.end = n.end.max(s.last_end_unix);
         *n.seconds.entry(s.category.as_str()).or_insert(0.0) += s.seconds;
@@ -181,6 +190,7 @@ pub fn sleep_nights(slices: &[SleepSlice]) -> Vec<Value> {
             Some(json!({
                 "ymd": ymd_of_day(*day),
                 "source": n.name.unwrap_or(bundle),
+                "watch": n.watch,
                 "start_unix": n.start as i64,
                 "end_unix": n.end as i64,
                 "in_bed_min": round1(in_bed),
@@ -524,6 +534,7 @@ mod tests {
     fn slice(day: i64, bundle: &str, category: &str, start: f64, minutes: f64) -> SleepSlice {
         SleepSlice {
             day, source_bundle: bundle.into(), source_name: Some(bundle.rsplit('.').next().unwrap().into()),
+            watch: bundle == "com.apple.watch",
             category: category.into(), seconds: minutes * 60.0, first_start_unix: start, last_end_unix: start + minutes * 60.0,
         }
     }
@@ -541,13 +552,24 @@ mod tests {
         ]);
         assert_eq!(nights.len(), 2);
         assert_eq!(nights[0], json!({
-            "ymd": "2022-01-08", "source": "phone", "start_unix": 500, "end_unix": 29300, "in_bed_min": 480.0,
+            "ymd": "2022-01-08", "source": "phone", "watch": false, "start_unix": 500, "end_unix": 29300, "in_bed_min": 480.0,
             "asleep_min": null, "deep_min": 0.0, "core_min": 0.0, "rem_min": 0.0, "unspecified_min": 0.0, "awake_min": 0.0,
         }), "only in_bed rows: the night exists and asleep is not known");
         assert_eq!(nights[1], json!({
-            "ymd": "2022-01-09", "source": "watch", "start_unix": 4600, "end_unix": 31200, "in_bed_min": 320.0,
+            "ymd": "2022-01-09", "source": "watch", "watch": true, "start_unix": 4600, "end_unix": 31200, "in_bed_min": 320.0,
             "asleep_min": 300.0, "deep_min": 60.0, "core_min": 240.0, "rem_min": 0.0, "unspecified_min": 0.0, "awake_min": 20.0,
         }), "no in_bed rows: in bed is the time asleep plus awake, not first start to last end");
+    }
+
+    #[test]
+    fn a_night_is_a_watch_night_only_when_its_source_is_a_watch() {
+        let nights = sleep_nights(&[
+            slice(19000, "com.apple.watch", "asleep_core", 1000.0, 400.0),
+            slice(19001, "com.apple.watch", "asleep_core", 90000.0, 300.0),
+            slice(19001, "com.tantsissa.AutoSleep", "asleep_unspecified", 89000.0, 420.0),
+        ]);
+        assert_eq!(nights.iter().map(|n| (n["source"].as_str().unwrap(), n["watch"].as_bool().unwrap())).collect::<Vec<_>>(),
+                   [("watch", true), ("AutoSleep", false)], "a night from another app that overlaps a watch night is not a watch night");
     }
 
     #[test]

@@ -30,7 +30,10 @@ export function classify(nights: SleepNight[]): HistoryNight[] {
   })
 }
 
+/** For an Apple Watch night, the score of the watch summary night that shares at least half of the shorter span with it,
+ *  the most shared time first. A night of another source has no score, even when it overlaps a watch night. */
 export function watchSleepScore(watch: WatchSummary | null, n: SleepNight): number | null {
+  if (!n.watch) return null
   let best: { overlap: number; score: number | null } | null = null
   for (const w of watch?.nights ?? []) {
     const overlap = Math.min(n.end_unix, w.end_unix) - Math.max(n.start_unix, w.start_unix)

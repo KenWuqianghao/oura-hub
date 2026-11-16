@@ -57,7 +57,7 @@ export interface HealthDaily { tz_offset_s: number; start_ymd: string; end_ymd: 
 
 /** One night from Apple Health. `ymd` is the wake day. Minutes have one decimal. `asleep_min` is null when the source wrote only time in bed. */
 export interface SleepNight {
-  ymd: string; source: string; start_unix: number; end_unix: number
+  ymd: string; source: string; watch: boolean; start_unix: number; end_unix: number
   in_bed_min: number; asleep_min: number | null; deep_min: number; core_min: number; rem_min: number; unspecified_min: number; awake_min: number
 }
 export interface HealthSleep { tz_offset_s: number; start_ymd: string; end_ymd: string; nights: SleepNight[] }

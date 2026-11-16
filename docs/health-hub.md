@@ -325,7 +325,7 @@ For sleep, use `get_health_sleep`.
 ```json
 { "tz_offset_s": 7200, "start_ymd": "2026-10-08", "end_ymd": "2026-10-08",
   "nights": [
-    { "ymd": "2026-10-08", "source": "Apple Watch", "start_unix": 1791407670, "end_unix": 1791439089,
+    { "ymd": "2026-10-08", "source": "Apple Watch", "watch": true, "start_unix": 1791407670, "end_unix": 1791439089,
       "in_bed_min": 523.6, "asleep_min": 514.6, "deep_min": 50.2, "core_min": 344.4, "rem_min": 120.0,
       "unspecified_min": 0.0, "awake_min": 9.0 }
   ] }
@@ -340,6 +340,10 @@ When more than one source has rows for a night, the source with the most time
 asleep gives the row. A source with only `in_bed` rows gives the row when no source
 has time asleep, and then `asleep_min` is null.
 
+- `watch` is true when that source is an Apple Watch. HealthKit gives a sleep row
+  no device, so the hub calls a source a watch when its `heart_rate` rows in the
+  window have the device `Watch`. Only a watch night can take a sleep score from
+  the Apple Watch summary.
 - `start_unix` and `end_unix` are the first start and the last end of the rows of
   that source.
 - `in_bed_min` is the total of the `in_bed` rows. When the source has no `in_bed`

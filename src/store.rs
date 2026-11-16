@@ -6,7 +6,7 @@ use rusqlite::{params, Connection, OptionalExtension, ToSql};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
-use crate::health::{DayValue, HealthBatch, HealthOutcome, HealthSample, SleepSlice, Workout, SLEEP_DAY_SHIFT_S};
+use crate::health::{DayValue, HealthBatch, HealthOutcome, HealthSample, SleepSlice, Workout, SLEEP_DAY_SHIFT_S, WATCH_DEVICE};
 use crate::kinds::{Agg, KindDef};
 
 pub struct Store {
@@ -357,20 +357,23 @@ impl Store {
             .collect()
     }
 
-    /// Seconds of sleep per night, source, and category.
+    /// Seconds of sleep per night, source, and category. A source is a watch when it
+    /// wrote heart rate from `WATCH_DEVICE` in the same window.
     pub fn health_sleep_slices(&self, lo_unix: f64, hi_unix: f64, tz_s: i64) -> Result<Vec<SleepSlice>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT CAST((start_unix + ?3 + ?4) / 86400 AS INTEGER) AS day, COALESCE(source_bundle, ''), MAX(source_name),
+                    source_bundle IN (SELECT source_bundle FROM health_samples
+                                      WHERE kind = 'heart_rate' AND start_unix >= ?1 AND start_unix < ?2 AND device = ?5),
                     COALESCE(category, ''), SUM(end_unix - start_unix), MIN(start_unix), MAX(end_unix)
              FROM health_samples WHERE kind = 'sleep_analysis' AND start_unix >= ?1 AND start_unix < ?2
              GROUP BY day, source_bundle, category ORDER BY day",
         )?;
         let rows = stmt
-            .query_map(params![lo_unix, hi_unix, tz_s, SLEEP_DAY_SHIFT_S], |r| {
+            .query_map(params![lo_unix, hi_unix, tz_s, SLEEP_DAY_SHIFT_S, WATCH_DEVICE], |r| {
                 Ok(SleepSlice {
-                    day: r.get(0)?, source_bundle: r.get(1)?, source_name: r.get(2)?, category: r.get(3)?,
-                    seconds: r.get(4)?, first_start_unix: r.get(5)?, last_end_unix: r.get(6)?,
+                    day: r.get(0)?, source_bundle: r.get(1)?, source_name: r.get(2)?, watch: r.get::<_, Option<bool>>(3)?.unwrap_or(false),
+                    category: r.get(4)?, seconds: r.get(5)?, first_start_unix: r.get(6)?, last_end_unix: r.get(7)?,
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -595,11 +598,15 @@ mod tests {
             h("a", "sleep_analysis", D - 3600.0, None, Some("asleep_core"), "watch"),
             h("b", "sleep_analysis", D + 7.0 * 3600.0, None, Some("asleep_core"), "watch"),
             h("c", "sleep_analysis", D + 19.0 * 3600.0, None, Some("asleep_rem"), "watch"),
+            h("d", "sleep_analysis", D, None, Some("asleep_unspecified"), "autosleep"),
+            HealthSample { device: Some("Watch".into()), ..h("e", "heart_rate", D, Some(55.0), None, "watch") },
         ]);
         let slices = s.health_sleep_slices(D - 86400.0, D + 86400.0, 0).unwrap();
-        assert_eq!(slices.iter().map(|x| (x.day, x.category.as_str(), x.seconds)).collect::<Vec<_>>(),
-                   [(19000, "asleep_core", 1200.0), (19001, "asleep_rem", 600.0)]);
-        assert_eq!((slices[0].first_start_unix, slices[0].last_end_unix), (D - 3600.0, D + 7.0 * 3600.0 + 600.0));
+        assert_eq!(slices.iter().map(|x| (x.day, x.source_bundle.as_str(), x.category.as_str(), x.seconds, x.watch)).collect::<Vec<_>>(),
+                   [(19000, "autosleep", "asleep_unspecified", 600.0, false), (19000, "watch", "asleep_core", 1200.0, true),
+                    (19001, "watch", "asleep_rem", 600.0, true)],
+                   "a source is a watch when its heart rate comes from a Watch");
+        assert_eq!((slices[1].first_start_unix, slices[1].last_end_unix), (D - 3600.0, D + 7.0 * 3600.0 + 600.0));
     }
 
     #[test]
