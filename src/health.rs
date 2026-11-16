@@ -359,6 +359,35 @@ pub fn watch_status(rows: &[HealthSample], now_unix: i64, tz_s: i64) -> Value {
     })
 }
 
+/// The latest scores, sleep debt and VO2 max of the Apple Watch summary, the one
+/// the phone builds from Apple Health only.
+pub fn watch_summary_status(summary: Option<&Value>, now_unix: i64) -> Value {
+    let Some(s) = summary else {
+        return json!({ "available": false, "note": "no Apple Watch summary has been pushed" });
+    };
+    let generated_at = s["generated_at"].as_f64().map(|g| g as i64);
+    let latest = s["scores"]["latest"].as_str();
+    let score = |kind: &str| {
+        let sc = latest.map(|day| &s["scores"]["days"][day][kind]).filter(|sc| sc["score"].is_number());
+        sc.map_or(Value::Null, |sc| json!({ "score": sc["score"], "provisional": sc["provisional"].as_bool().unwrap_or(false) }))
+    };
+    let sd = &s["sleep_debt"];
+    let fitness = &s["fitness"];
+    json!({
+        "available": true,
+        "note": "Computed on the phone from Apple Watch data only. These are not the ring scores: give them as Apple Watch values and never merge, average or swap them with ring values.",
+        "generated_at": generated_at,
+        "age_min": generated_at.map(|g| ((now_unix - g).max(0) as f64 / 60.0).round()),
+        "scores": { "ymd": latest, "sleep": score("sleep"), "readiness": score("readiness") },
+        "sleep_debt": if sd.is_object() {
+            json!({ "state": sd["state"], "debt_min": sd["debt_min"], "recent_shortfall_min": sd["recent_shortfall_min"], "need_h": sd["need_h"], "valid": sd["valid"] })
+        } else { Value::Null },
+        "vo2_max": if fitness["vo2max"].is_number() {
+            json!({ "value": fitness["vo2max"], "date": fitness["date"], "source_name": fitness["source_name"] })
+        } else { Value::Null },
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

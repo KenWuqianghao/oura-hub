@@ -194,19 +194,19 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
     let tools = vec![
         Tool {
             name: "get_status_now",
-            description: "The current health status for planning today: last night's sleep, sleep debt, HRV and resting heart rate against baseline, illness signs, today's activity so far, and how fresh the data is. Call this first.",
+            description: "The current health status for planning today. The top level is the ring summary: last night's sleep, sleep debt, HRV and resting heart rate against baseline, illness signs, today's activity so far, the formula VO2 max estimate (`fitness`), and how fresh the data is. The `watch` block is Apple Health, as get_watch returns it; its `summary` is the separate Apple Watch summary with its own latest sleep and readiness scores, sleep debt and measured VO2 max. The ring and the Apple Watch values are separate: never merge them. Call this first.",
             input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
         },
         Tool {
             name: "get_sleep",
-            description: "Recent nights, newest first: bed and wake time, time asleep, efficiency, stage percentages, HRV, resting heart rate, skin temperature deviation, awakenings.",
+            description: "Recent ring nights from the ring summary, newest first: bed and wake time, time asleep, efficiency, stage percentages, HRV, resting heart rate, skin temperature deviation, awakenings. Apple Watch nights are in get_health_sleep.",
             input_schema: json!({ "type": "object", "properties": {
                 "days": { "type": "integer", "minimum": 1, "maximum": 90, "default": 7, "description": "How many nights to return." }
             }, "additionalProperties": false }),
         },
         Tool {
             name: "get_trends",
-            description: "One metric per day over a window, oldest first, with the latest value, the window mean, and the personal baseline when one exists.",
+            description: "One ring metric per day from the ring summary over a window, oldest first, with the latest value, the window mean, and the personal baseline when one exists.",
             input_schema: json!({ "type": "object", "properties": {
                 "metric": { "type": "string", "enum": metrics, "description": "Which metric to return." },
                 "days": { "type": "integer", "minimum": 1, "maximum": 365, "default": 14 }
@@ -214,7 +214,7 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
         },
         Tool {
             name: "get_watch",
-            description: "Apple Health data pushed from the iPhone, mostly from the Apple Watch: today's and yesterday's steps, active energy, exercise and stand minutes, stand hours; latest heart rate, resting heart rate, HRV (SDNN), VO2 max, respiratory rate, blood oxygen, wrist temperature; the last sleep with stages; workouts in the last 48 h; freshness.",
+            description: "Apple Health data pushed from the iPhone, mostly from the Apple Watch: today's and yesterday's steps, active energy, exercise and stand minutes, stand hours; latest heart rate, resting heart rate, HRV (SDNN), VO2 max, respiratory rate, blood oxygen, wrist temperature; the last sleep with stages; workouts in the last 48 h; freshness. `summary` is the Apple Watch summary that the phone computes from Apple Health only: the latest sleep and readiness scores, sleep debt and measured VO2 max, or `available: false` when none was pushed. These are not ring values.",
             input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
         },
         Tool {
@@ -311,7 +311,10 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
                     rows.push(r);
                 }
             }
-            Ok(health::watch_status(&rows, now, tz_s(ring)))
+            let mut status = health::watch_status(&rows, now, tz_s(ring));
+            let summary = store_for_handler.latest(SummaryKind::Watch).map_err(|e| format!("store error: {e}"))?;
+            status["summary"] = health::watch_summary_status(summary.as_ref().map(|s| &s.body), now);
+            Ok(status)
         };
         if name == "get_watch" {
             let snap = store_for_handler.latest(SummaryKind::Ring).map_err(|e| format!("store error: {e}"))?;

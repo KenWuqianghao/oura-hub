@@ -132,6 +132,30 @@ async fn each_kind_is_stored_and_read_on_its_own() {
 }
 
 #[tokio::test]
+async fn the_status_watch_block_carries_the_watch_summary_apart_from_the_ring() {
+    let app = app();
+    let uri = format!("/mcp/{TOKEN}");
+    let (_, _) = send(&app, post("/ingest/summary", Some(TOKEN), summary())).await;
+    let status = |id| rpc(id, "tools/call", json!({ "name": "get_status_now", "arguments": {} }));
+    let (_, r) = send(&app, post(&uri, None, status(1))).await;
+    assert_eq!(r["result"]["structuredContent"]["watch"]["summary"]["available"], false, "{r}");
+
+    let (_, _) = send(&app, post("/ingest/summary", Some(TOKEN), watch_summary())).await;
+    let (_, r) = send(&app, post(&uri, None, status(2))).await;
+    let st = &r["result"]["structuredContent"];
+    let w = &st["watch"]["summary"];
+    assert_eq!(w["available"], true, "{r}");
+    assert_eq!(w["scores"]["ymd"], "2023-11-14");
+    assert_eq!((w["scores"]["sleep"]["score"].as_i64(), w["scores"]["readiness"]["score"].as_i64()), (Some(76), Some(81)));
+    assert_eq!((w["sleep_debt"]["state"].as_str(), w["sleep_debt"]["debt_min"].as_f64()), (Some("mild"), Some(95.0)));
+    assert_eq!((w["vo2_max"]["value"].as_f64(), w["vo2_max"]["date"].as_str()), (Some(40.6), Some("2023-11-10")));
+    assert_eq!(st["sleep_debt"]["state"], "none", "the ring sleep debt stays the ring's");
+
+    let (_, r) = send(&app, post(&uri, None, rpc(3, "tools/call", json!({ "name": "get_watch", "arguments": {} })))).await;
+    assert_eq!(r["result"]["structuredContent"]["summary"]["scores"]["sleep"]["score"], 76);
+}
+
+#[tokio::test]
 async fn ingest_then_health_then_tools() {
     let app = app();
     let (s, h) = send(&app, Request::get("/health").body(Body::empty()).unwrap()).await;
