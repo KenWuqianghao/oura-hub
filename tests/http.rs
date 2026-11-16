@@ -30,6 +30,7 @@ fn oura_protocol_event(ts: u32, body: Vec<u8>) -> oura_protocol::events::RingEve
 
 fn summary() -> Value {
     json!({
+        "kind": "ring",
         "generated_at": 1_700_000_000.0,
         "tz": 8,
         "device": { "fresh_hours": 1.0, "battery_pct": 70, "nights": 1 },
@@ -38,6 +39,21 @@ fn summary() -> Value {
         "sleep_debt": { "state": "none", "debt_min": 0.0, "valid": true },
         "vitals": { "hrv": { "latest": 50.0, "baseline": 48.0, "delta_pct": 4.0 }, "rhr": { "latest": 50.0 } },
         "activity_daily": { "2023-11-14": { "steps": 5000.0, "active_kcal": 300.0, "total_kcal": 2000.0, "distance_m": 3810.0 } }
+    })
+}
+
+fn watch_summary() -> Value {
+    let score = |n: i64| json!({ "score": n, "provisional": false, "contributors": [], "basis": "test" });
+    json!({
+        "kind": "watch",
+        "generated_at": 1_700_000_100.0,
+        "tz": 8,
+        "nights": [{ "ymd": "2023-11-14", "start_unix": 1_699_974_000, "end_unix": 1_700_002_800, "in_bed_min": 480.0, "asleep_min": 440.0,
+                     "deep_min": 60.0, "core_min": 280.0, "rem_min": 100.0, "awake_min": 40.0, "min_hr": 48.0, "hrv_sdnn_ms": 45.0, "sleep_score": 76 }],
+        "scores": { "latest": "2023-11-14", "days": { "2023-11-14": { "sleep": score(76), "readiness": score(81) } } },
+        "sleep_debt": { "state": "moderate", "debt_min": 400.0, "recent_shortfall_min": 20.0, "need_h": 7.5, "valid": true },
+        "fitness": { "vo2max": 40.6, "date": "2023-11-10", "source_name": "Ken's Apple Watch" },
+        "workouts": []
     })
 }
 
@@ -72,9 +88,71 @@ async fn ingest_needs_the_bearer_token() {
     assert_eq!(s, StatusCode::UNAUTHORIZED);
     let (s, _) = send(&app, post("/ingest/summary", Some("wrong"), summary())).await;
     assert_eq!(s, StatusCode::UNAUTHORIZED);
-    let (s, body) = send(&app, post("/ingest/summary", Some(TOKEN), json!({ "hello": 1 }))).await;
+    let (s, body) = send(&app, post("/ingest/summary", Some(TOKEN), json!({ "kind": "ring", "hello": 1 }))).await;
     assert_eq!(s, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(body["error"].as_str().unwrap().contains("nights"));
+}
+
+#[tokio::test]
+async fn ingest_needs_a_valid_kind() {
+    let app = app();
+    let mut no_kind = summary();
+    no_kind.as_object_mut().unwrap().remove("kind");
+    for body in [no_kind, json!({ "kind": "merged", "nights": [] }), json!({ "kind": 1, "nights": [] }), json!([1])] {
+        let (s, out) = send(&app, post("/ingest/summary", Some(TOKEN), body.clone())).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{body}");
+        assert!(out["error"].as_str().unwrap().contains("kind"), "{out}");
+    }
+    let (_, h) = send(&app, get_auth("/health")).await;
+    assert_eq!(h["snapshots"], 0, "nothing was stored");
+}
+
+#[tokio::test]
+async fn each_kind_is_stored_and_read_on_its_own() {
+    let app = app();
+    let (s, r) = send(&app, get_auth("/api/watch-summary")).await;
+    assert_eq!((s, r), (StatusCode::OK, Value::Null), "no watch summary yet");
+    let (s, _) = send(&app, Request::get("/api/watch-summary").body(Body::empty()).unwrap()).await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+
+    let (_, out) = send(&app, post("/ingest/summary", Some(TOKEN), summary())).await;
+    assert_eq!((out["kind"].as_str(), out["stored"].as_bool()), (Some("ring"), Some(true)));
+    let (_, out) = send(&app, post("/ingest/summary", Some(TOKEN), watch_summary())).await;
+    assert_eq!((out["kind"].as_str(), out["stored"].as_bool(), out["snapshots"].as_i64()), (Some("watch"), Some(true), Some(1)));
+    let (_, again) = send(&app, post("/ingest/summary", Some(TOKEN), watch_summary())).await;
+    assert_eq!(again["stored"], false);
+
+    let (_, ring) = send(&app, get_auth("/api/summary")).await;
+    assert_eq!(ring["body"]["kind"], "ring", "the newer watch summary does not replace the ring one");
+    let (_, watch) = send(&app, get_auth("/api/watch-summary")).await;
+    assert_eq!(watch["body"]["kind"], "watch");
+    assert_eq!(watch["generated_at"], 1_700_000_100.0);
+    let (_, h) = send(&app, get_auth("/health")).await;
+    assert_eq!((h["snapshots"].as_i64(), h["latest_generated_at"].as_f64()), (Some(2), Some(1_700_000_000.0)));
+}
+
+#[tokio::test]
+async fn the_status_watch_block_carries_the_watch_summary_apart_from_the_ring() {
+    let app = app();
+    let uri = format!("/mcp/{TOKEN}");
+    let (_, _) = send(&app, post("/ingest/summary", Some(TOKEN), summary())).await;
+    let status = |id| rpc(id, "tools/call", json!({ "name": "get_status_now", "arguments": {} }));
+    let (_, r) = send(&app, post(&uri, None, status(1))).await;
+    assert_eq!(r["result"]["structuredContent"]["watch"]["summary"]["available"], false, "{r}");
+
+    let (_, _) = send(&app, post("/ingest/summary", Some(TOKEN), watch_summary())).await;
+    let (_, r) = send(&app, post(&uri, None, status(2))).await;
+    let st = &r["result"]["structuredContent"];
+    let w = &st["watch"]["summary"];
+    assert_eq!(w["available"], true, "{r}");
+    assert_eq!(w["scores"]["ymd"], "2023-11-14");
+    assert_eq!((w["scores"]["sleep"]["score"].as_i64(), w["scores"]["readiness"]["score"].as_i64()), (Some(76), Some(81)));
+    assert_eq!((w["sleep_debt"]["state"].as_str(), w["sleep_debt"]["debt_min"].as_f64()), (Some("moderate"), Some(400.0)));
+    assert_eq!((w["vo2_max"]["value"].as_f64(), w["vo2_max"]["date"].as_str()), (Some(40.6), Some("2023-11-10")));
+    assert_eq!(st["sleep_debt"]["state"], "none", "the ring sleep debt stays the ring's");
+
+    let (_, r) = send(&app, post(&uri, None, rpc(3, "tools/call", json!({ "name": "get_watch", "arguments": {} })))).await;
+    assert_eq!(r["result"]["structuredContent"]["summary"]["scores"]["sleep"]["score"], 76);
 }
 
 #[tokio::test]
@@ -136,7 +214,7 @@ async fn mcp_auth_paths_and_methods() {
     let (s, r) = send(&app, post("/mcp", Some(TOKEN), init)).await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(r["result"]["isError"], true);
-    assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("no health data yet"));
+    assert!(r["result"]["content"][0]["text"].as_str().unwrap().contains("no ring summary yet"));
     // no SSE stream, no session delete
     let (s, _) = send(&app, Request::get(format!("/mcp/{TOKEN}")).body(Body::empty()).unwrap()).await;
     assert_eq!(s, StatusCode::METHOD_NOT_ALLOWED);

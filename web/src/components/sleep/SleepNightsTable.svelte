@@ -1,13 +1,14 @@
 <script lang="ts">
   // Every Apple Health night of the period, newest first. A night that the means
   // and the charts leave out stays in this log, with a mark.
-  import type { HistoryNight } from '../../lib/sleepHistory'
+  import { watchSleepScore, type HistoryNight } from '../../lib/sleepHistory'
+  import type { WatchSummary } from '../../lib/api'
   import { t } from '../../lib/i18n.svelte'
   import * as F from '../../lib/fmt'
   import ShowMore from '../ShowMore.svelte'
 
   const PAGE = 30
-  let { nights, dim = false }: { nights: HistoryNight[]; dim?: boolean } = $props()
+  let { nights, watch, dim = false }: { nights: HistoryNight[]; watch: WatchSummary | null; dim?: boolean } = $props()
   let shown = $state(PAGE)
   const rows = $derived([...nights].reverse())
   const dur = (min: number | null) => min == null ? '—' : F.minutesText(min)
@@ -17,13 +18,14 @@
 
 <div class="table-scroll" class:dim><table class="t">
   <thead><tr>
-    <th>{t('sleep.woke_on')}</th><th>{t('sleep.source')}</th><th class="r">{t('sleep.bedtime')}</th><th class="r">{t('sleep.wake_time')}</th>
+    <th>{t('sleep.woke_on')}</th><th>{t('sleep.source')}</th><th class="r">{t('sleep.score')}</th><th class="r">{t('sleep.bedtime')}</th><th class="r">{t('sleep.wake_time')}</th>
     <th class="r">{t('common.in_bed')}</th><th class="r">{t('common.asleep')}</th><th class="r">{t('common.deep')}</th><th class="r">{t('common.core')}</th><th class="r">{t('common.rem')}</th><th class="r">{t('common.awake')}</th>
   </tr></thead>
   <tbody>
     {#each rows.slice(0, shown) as n (n.ymd)}
       <tr class:out={n.overlapping}>
         <td>{F.fullDateOf(F.parseYmd(n.ymd) ?? 0)}{mark(n)}</td><td>{n.source}</td>
+        <td class="r">{F.num(watchSleepScore(watch, n))}</td>
         <td class="r">{F.timeHM(n.start_unix)}</td><td class="r">{F.timeHM(n.end_unix)}</td>
         <td class="r">{dur(n.in_bed_min)}</td><td class="r">{dur(n.asleep_min)}</td>
         <td class="r">{stage(n, n.deep_min)}</td><td class="r">{stage(n, n.core_min)}</td><td class="r">{stage(n, n.rem_min)}</td>

@@ -1,7 +1,8 @@
 //! The always-on health hub.
 //!
-//! Clients push a `build_summary` JSON to `POST /ingest/summary` and the raw ring
-//! rows to `POST /ingest/events`. Agents read the summary through MCP at
+//! Clients push two summaries to `POST /ingest/summary`, the ring one and the
+//! Apple Watch one, each marked by its `kind`, and the raw ring rows to
+//! `POST /ingest/events`. Agents read the summary through MCP at
 //! `POST /mcp/<token>` (or `POST /mcp` with a bearer token). The raw rows live in a
 //! second SQLite file with the `oura-store` schema, so the hub is a full replica of
 //! the ring data: `oura dashboard --db` runs on it, and `GET /export/events` gives
@@ -30,10 +31,9 @@ use serde_json::{json, Value};
 use health::HealthBatch;
 use mcp::{Reply, Server, Tool};
 use oura_store::replication::ExportBatch;
-use store::Store;
+use store::{Store, SummaryKind};
 
-/// Snapshots kept after each push.
-pub const KEEP_SNAPSHOTS: i64 = 500;
+pub const KEEP_SNAPSHOTS_PER_KIND: i64 = 500;
 /// A summary with per-night series is a few MB. Allow more before it hurts.
 pub const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 
@@ -103,7 +103,7 @@ impl DayWindow {
     fn tz_from_args(store: &Store, args: &Value) -> Result<i64, String> {
         match args["tz_offset_s"].as_i64() {
             Some(tz) => Ok(tz.clamp(-18 * 3600, 18 * 3600)),
-            None => store.latest_tz_s().map_err(|e| format!("store error: {e}")),
+            None => store.latest_ring_tz_s().map_err(|e| format!("store error: {e}")),
         }
     }
 
@@ -193,19 +193,19 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
     let tools = vec![
         Tool {
             name: "get_status_now",
-            description: "The current health status for planning today: last night's sleep, sleep debt, HRV and resting heart rate against baseline, illness signs, today's activity so far, and how fresh the data is. Call this first.",
+            description: "The current health status for planning today. The top level is the ring summary: last night's sleep, sleep debt, HRV and resting heart rate against baseline, illness signs, today's activity so far, the formula VO2 max estimate (`fitness`), and how fresh the data is. The `watch` block is Apple Health, as get_watch returns it; its `summary` is the separate Apple Watch summary with its own latest sleep and readiness scores, sleep debt and measured VO2 max. The ring and the Apple Watch values are separate: never merge them. Call this first.",
             input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
         },
         Tool {
             name: "get_sleep",
-            description: "Recent nights, newest first: bed and wake time, time asleep, efficiency, stage percentages, HRV, resting heart rate, skin temperature deviation, awakenings.",
+            description: "Recent ring nights from the ring summary, newest first: bed and wake time, time asleep, efficiency, stage percentages, HRV, resting heart rate, skin temperature deviation, awakenings. Apple Watch nights are in get_health_sleep.",
             input_schema: json!({ "type": "object", "properties": {
                 "days": { "type": "integer", "minimum": 1, "maximum": 90, "default": 7, "description": "How many nights to return." }
             }, "additionalProperties": false }),
         },
         Tool {
             name: "get_trends",
-            description: "One metric per day over a window, oldest first, with the latest value, the window mean, and the personal baseline when one exists.",
+            description: "One ring metric per day from the ring summary over a window, oldest first, with the latest value, the window mean, and the personal baseline when one exists.",
             input_schema: json!({ "type": "object", "properties": {
                 "metric": { "type": "string", "enum": metrics, "description": "Which metric to return." },
                 "days": { "type": "integer", "minimum": 1, "maximum": 365, "default": 14 }
@@ -213,7 +213,7 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
         },
         Tool {
             name: "get_watch",
-            description: "Apple Health data pushed from the iPhone, mostly from the Apple Watch: today's and yesterday's steps, active energy, exercise and stand minutes, stand hours; latest heart rate, resting heart rate, HRV (SDNN), VO2 max, respiratory rate, blood oxygen, wrist temperature; the last sleep with stages; workouts in the last 48 h; freshness.",
+            description: "Apple Health data pushed from the iPhone, mostly from the Apple Watch: today's and yesterday's steps, active energy, exercise and stand minutes, stand hours; latest heart rate, resting heart rate, HRV (SDNN), VO2 max, respiratory rate, blood oxygen, wrist temperature; the last sleep with stages; workouts in the last 48 h; freshness. `summary` is the Apple Watch summary that the phone computes from Apple Health only: the latest sleep and readiness scores, sleep debt and measured VO2 max, or `available: false` when none was pushed. These are not ring values.",
             input_schema: json!({ "type": "object", "properties": {}, "additionalProperties": false }),
         },
         Tool {
@@ -245,7 +245,7 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
         },
         Tool {
             name: "get_health_sleep",
-            description: "Apple Health sleep per night, oldest first, from every source that wrote sleep (Apple Watch, the Oura app, other trackers), back to the first night on record. get_sleep has more detail but only the recent ring nights; use this one for long ranges and for nights the ring did not record. `ymd` is the day the night ends on: a segment belongs to the night of its local start time plus six hours. Per night the source with the most time asleep gives the row: `source`, `start_unix`, `end_unix`, and minutes `in_bed_min`, `asleep_min`, `deep_min`, `core_min`, `rem_min`, `unspecified_min` (asleep with no stage), `awake_min`. `asleep_min` is null when the source logged only time in bed. Either `days` back from today, or `start_ymd` with an optional `end_ymd`.",
+            description: "Apple Health sleep per night, oldest first, from every source that wrote sleep (Apple Watch, the Oura app, other trackers), back to the first night on record. get_sleep has more detail but only the recent ring nights; use this one for long ranges and for nights the ring did not record. `ymd` is the day the night ends on: a segment belongs to the night of its local start time plus six hours. Per night the source with the most time asleep gives the row: `source`, `watch` (true when that source is an Apple Watch: its heart rate rows come from a Watch; only such a night can take a score from the watch block), `start_unix`, `end_unix`, and minutes `in_bed_min`, `asleep_min`, `deep_min`, `core_min`, `rem_min`, `unspecified_min` (asleep with no stage), `awake_min`. `asleep_min` is null when the source logged only time in bed. Either `days` back from today, or `start_ymd` with an optional `end_ymd`.",
             input_schema: json!({ "type": "object", "properties": {
                 "days": { "type": "integer", "minimum": 1, "maximum": MAX_WINDOW_DAYS, "default": 30, "description": "How many nights back from today." },
                 "start_ymd": { "type": "string", "description": "First wake day, YYYY-MM-DD; overrides days." },
@@ -298,7 +298,7 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
         let now = now_unix();
         // Apple Health tools do not need a ring summary.
         let tz_s = |snap: Option<&Value>| snap.and_then(|s| s["tz"].as_i64()).unwrap_or(0) * 3600;
-        let watch = |snap: Option<&Value>| -> Result<Value, String> {
+        let watch = |ring: Option<&Value>| -> Result<Value, String> {
             // The last 7 days for totals and means, plus the newest row of every kind
             // so a sparse vital (VO2 max is weekly at best) still has a "latest".
             let mut rows = store_for_handler
@@ -310,10 +310,13 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
                     rows.push(r);
                 }
             }
-            Ok(health::watch_status(&rows, now, tz_s(snap)))
+            let mut status = health::watch_status(&rows, now, tz_s(ring));
+            let summary = store_for_handler.latest(SummaryKind::Watch).map_err(|e| format!("store error: {e}"))?;
+            status["summary"] = health::watch_summary_status(summary.as_ref().map(|s| &s.body), now);
+            Ok(status)
         };
         if name == "get_watch" {
-            let snap = store_for_handler.latest().map_err(|e| format!("store error: {e}"))?;
+            let snap = store_for_handler.latest(SummaryKind::Ring).map_err(|e| format!("store error: {e}"))?;
             return watch(snap.as_ref().map(|s| &s.body));
         }
         if name == "list_health_kinds" {
@@ -358,9 +361,9 @@ pub fn tools(store_for_handler: Arc<Store>) -> (Vec<Tool>, mcp::Handler) {
             return Ok(json!({ "kind": kind, "count": rows.len(), "samples": rows }));
         }
         let snap = store_for_handler
-            .latest()
+            .latest(SummaryKind::Ring)
             .map_err(|e| format!("store error: {e}"))?
-            .ok_or_else(|| "no health data yet: nothing has been pushed to this hub".to_string())?;
+            .ok_or_else(|| "no ring summary yet: the phone has not pushed one to this hub".to_string())?;
         let s = &snap.body;
         match name {
             "get_status_now" => {
@@ -415,6 +418,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/", get(web::index))
         .route("/api/session", get(web::session))
         .route("/api/summary", get(web::summary))
+        .route("/api/watch-summary", get(web::watch_summary))
         .route("/api/tool/{name}", post(web::tool))
         .route("/api/agent/providers", get(web::agent_providers))
         .route("/api/agent/ask", post(web::agent_ask))
@@ -429,14 +433,14 @@ async fn health(State(st): State<Arc<AppState>>, headers: HeaderMap) -> Response
     if !bearer(&headers).is_some_and(|t| token_matches(t, &st.token)) {
         return Json(json!({ "ok": true })).into_response();
     }
-    let latest = st.store.latest().ok().flatten();
+    let latest = st.store.latest(SummaryKind::Ring).ok().flatten();
     let (ring_ids, serials) = {
         let ring = st.ring.lock().unwrap();
         (ring.max_ids().unwrap_or((0, 0)), ring.device_serials().unwrap_or_default())
     };
     Json(json!({
         "ok": true,
-        "snapshots": st.store.count().unwrap_or(0),
+        "snapshots": st.store.count_all().unwrap_or(0),
         "latest_received_at": latest.as_ref().map(|s| s.received_at),
         "latest_generated_at": latest.as_ref().and_then(|s| s.generated_at),
         "ring": {
@@ -526,19 +530,23 @@ async fn ingest(State(st): State<Arc<AppState>>, headers: HeaderMap, body: Bytes
         Ok(v) => v,
         Err(e) => return (StatusCode::BAD_REQUEST, Json(json!({ "error": format!("invalid JSON: {e}") }))).into_response(),
     };
-    if !value.is_object() || value.get("nights").is_none() {
-        return (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": "expected a build_summary object with a nights field" }))).into_response();
+    let Some(kind) = SummaryKind::of_body(&value) else {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "kind must be \"ring\" or \"watch\"" }))).into_response();
+    };
+    if value.get("nights").is_none() {
+        return (StatusCode::UNPROCESSABLE_ENTITY, Json(json!({ "error": "expected a summary object with a nights field" }))).into_response();
     }
     let received_at = now_unix();
-    match st.store.put(&value, received_at) {
+    match st.store.put(kind, &value, received_at) {
         Ok(out) => {
-            let _ = st.store.prune(KEEP_SNAPSHOTS);
+            let _ = st.store.prune(kind, KEEP_SNAPSHOTS_PER_KIND);
             Json(json!({
+                "kind": kind.as_str(),
                 "stored": out.stored,
                 "sha256": out.sha256,
                 "received_at": received_at,
                 "generated_at": value.get("generated_at"),
-                "snapshots": out.snapshots.min(KEEP_SNAPSHOTS),
+                "snapshots": out.snapshots.min(KEEP_SNAPSHOTS_PER_KIND),
             }))
             .into_response()
         }

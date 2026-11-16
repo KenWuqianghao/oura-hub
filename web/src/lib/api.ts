@@ -28,7 +28,8 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export const api = {
   session: () => request<{ ok: boolean; name: string; version: string }>('/api/session'),
   health: () => request<HealthInfo>('/health'),
-  summary: () => request<{ received_at: number; generated_at: number | null; body: Summary }>('/api/summary'),
+  summary: () => request<Pushed<Summary>>('/api/summary'),
+  watchSummary: () => request<Pushed<WatchSummary> | null>('/api/watch-summary'),
   tool: <T = any>(name: string, args: object = {}) =>
     request<T>(`/api/tool/${name}`, { method: 'POST', body: JSON.stringify(args) }),
   healthDaily: (args: Omit<HealthDailyArgs, 'tz_offset_s'>) => api.tool<HealthDaily>('get_health_daily', { ...args, tz_offset_s: tzOffsetS() }),
@@ -56,7 +57,7 @@ export interface HealthDaily { tz_offset_s: number; start_ymd: string; end_ymd: 
 
 /** One night from Apple Health. `ymd` is the wake day. Minutes have one decimal. `asleep_min` is null when the source wrote only time in bed. */
 export interface SleepNight {
-  ymd: string; source: string; start_unix: number; end_unix: number
+  ymd: string; source: string; watch: boolean; start_unix: number; end_unix: number
   in_bed_min: number; asleep_min: number | null; deep_min: number; core_min: number; rem_min: number; unspecified_min: number; awake_min: number
 }
 export interface HealthSleep { tz_offset_s: number; start_ymd: string; end_ymd: string; nights: SleepNight[] }
@@ -89,16 +90,34 @@ export interface SleepDebt { debt_min: number; recent_shortfall_min: number; val
 export interface Illness { available: boolean; status: string; traffic_light: string; score?: number; date?: string; days_with_data?: number; biomarkers?: any[] }
 export interface Contributor { key: string; name: string; weight: number; score: number; value?: number | null; unit?: string; source?: string }
 export interface Score { score: number; provisional?: boolean; contributors?: Contributor[]; basis?: string }
-export interface Workout { start: string; end: string; durationMin: number; label: string; isWorkout: number }
+export interface Workout {
+  start: string; end: string; label: string; source?: string
+  durationMin?: number; isWorkout?: number; start_unix?: number; end_unix?: number; duration_min?: number
+}
 export interface Device { serial?: string; firmware?: string; battery_pct?: number | null; days_of_data?: number; nights?: number; synced?: string; synced_hm?: string; fresh_hours?: number }
 export interface Summary {
   generated_at?: number; tz?: number; digest?: string; device?: Device
   nights: Night[]; vitals: { hrv: Trend; rhr: Trend; hr?: LatestVital | null }
   activity_profile: Record<string, number[]>; activity_daily: Record<string, DailyStat>
   profile?: any; cardio?: { vascular_age?: number; chronological_age?: number; pwv_ms?: number; segments?: number } | null
-  fitness?: { vo2max?: number } | null; sleep_debt?: SleepDebt | null; illness?: Illness | null
-  scores?: { latest?: string; basis?: string; days: Record<string, Record<string, Score>> } | null
+  fitness?: { vo2max?: number; source?: string } | null; sleep_debt?: SleepDebt | null; illness?: Illness | null
+  scores?: Scores | null
   workouts?: Workout[]; pushed_by?: { client: string; version: string }
+}
+
+export interface Scores { latest?: string | null; basis?: string; days: Record<string, Record<string, Score>> }
+export interface Pushed<T> { received_at: number; generated_at: number | null; body: T }
+export interface WatchNight {
+  ymd: string; start_unix: number; end_unix: number
+  in_bed_min: number; asleep_min: number; deep_min: number; core_min: number; rem_min: number; awake_min: number
+  min_hr: number | null; hrv_sdnn_ms: number | null; sleep_score: number | null
+}
+export interface WatchSummary {
+  kind: 'watch'; generated_at?: number; tz?: number
+  nights: WatchNight[]
+  scores?: Scores | null
+  sleep_debt?: SleepDebt | null
+  fitness?: { vo2max: number; date?: string; source_name?: string } | null
 }
 
 export interface WatchLatest { value: number | null; unit?: string; at_unix?: number; source?: string }

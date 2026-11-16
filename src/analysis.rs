@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 
 use crate::health::{self, ymd_of_day};
 use crate::stats;
-use crate::store::Store;
+use crate::store::{Store, SummaryKind};
 use crate::kinds::{self, Agg};
 use crate::{parse_ymd, DayWindow, MAX_WINDOW_DAYS};
 
@@ -122,7 +122,7 @@ fn load_series(store: &Store, snapshot: Option<&Value>, series: &SeriesRef, w: &
     let in_window = |p: BTreeMap<i64, f64>| p.range(w.first..=w.last).map(|(d, v)| (*d, *v)).collect::<BTreeMap<_, _>>();
     let (unit, day_total, mut points) = match series {
         SeriesRef::Ring(metric) => {
-            let summary = snapshot.ok_or("no ring data yet: nothing has been pushed to this hub")?;
+            let summary = snapshot.ok_or("no ring summary yet: the phone has not pushed one to this hub")?;
             let unit = oura_summary::agent::TREND_METRICS.iter().find(|(m, _)| m == metric).map_or("", |(_, u)| *u);
             (unit.to_string(), ACTIVITY_METRICS.contains(metric), in_window(ring_points(summary, metric)))
         }
@@ -173,8 +173,8 @@ fn snapshot_for(store: &Store, refs: &[&SeriesRef]) -> Result<Option<Value>, Str
     if !refs.iter().any(|r| matches!(r, SeriesRef::Ring(_))) {
         return Ok(None);
     }
-    let snap = store.latest().map_err(|e| format!("store error: {e}"))?;
-    Ok(Some(snap.ok_or("no ring data yet: nothing has been pushed to this hub")?.body))
+    let snap = store.latest(SummaryKind::Ring).map_err(|e| format!("store error: {e}"))?;
+    Ok(Some(snap.ok_or("no ring summary yet: the phone has not pushed one to this hub")?.body))
 }
 
 fn round3(x: f64) -> f64 {

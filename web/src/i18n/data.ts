@@ -2,7 +2,7 @@
 export const en = {
   sub: 'The data that the hub has, and when the latest data arrived.',
   snapshots: 'Summary snapshots', snapshots_kept: 'Snapshots kept', latest_received: 'Latest received', built_by: 'Built by', nights_in_summary: 'Nights in summary', activity_days: 'Activity days',
-  snapshots_note: 'The iPhone builds the summary after each ring sync and sends it when its content changed. The hub keeps the last 500.',
+  snapshots_note: 'After each ring sync the iPhone builds two summaries: one from the ring and one from the Apple Watch. It sends each one when its content changed. The hub keeps the last 500 of each.',
   replica: 'Ring replica', serial: 'Serial', raw_events: 'Raw events', readings: 'Readings',
   replica_note: 'Each raw ring event that the iPhone read from the ring, in the same SQLite schema that the desktop client uses. It is a full backup: <span class="code">oura dashboard --db oura.db</span> runs on it.',
   this_hub: 'This hub', address: 'Address', tools: 'Tools', hub_note: 'An agent with the token reads the same data that these pages show.', sign_out: 'Sign out of this browser',
@@ -13,7 +13,7 @@ export const en = {
 export const zh = {
   sub: 'Hub 中有哪些数据，以及最新的数据是什么时候收到的。',
   snapshots: '摘要快照', snapshots_kept: '保留的快照', latest_received: '最新收到', built_by: '生成方', nights_in_summary: '摘要中的夜晚数', activity_days: '活动天数',
-  snapshots_note: '每次戒指同步后，iPhone 都会生成摘要，并在内容有变化时发送。Hub 保留最近 500 份。',
+  snapshots_note: '每次戒指同步后，iPhone 生成两份摘要：一份来自戒指，一份来自 Apple Watch。每份摘要在内容有变化时发送。Hub 对每种摘要保留最近 500 份。',
   replica: '戒指数据副本', serial: '序列号', raw_events: '原始事件', readings: '读数',
   replica_note: 'iPhone 从戒指读取的全部原始事件，采用与桌面客户端相同的 SQLite 结构。这是一份完整备份，可以直接运行 <span class="code">oura dashboard --db oura.db</span>。',
   this_hub: '此 Hub', address: '地址', tools: '工具', hub_note: '持有令牌的智能体读取的数据与这些页面显示的相同。', sign_out: '在此浏览器中退出登录',

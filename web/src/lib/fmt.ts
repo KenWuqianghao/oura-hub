@@ -1,6 +1,6 @@
 // Formatting. Dates, numbers, and relative times go through `Intl` with the page's
 // locale; words go through `t()`.
-import type { Night, Summary } from './api'
+import type { Night, Scores, Summary } from './api'
 import { t, intlTag, type Key } from './i18n.svelte'
 
 const cache = new Map<string, Intl.DateTimeFormat | Intl.NumberFormat | Intl.RelativeTimeFormat>()
@@ -131,14 +131,18 @@ export function nightForDay(s: Summary, day: string): Night | undefined {
   if (c.length) return c.reduce((a, b) => ((a.in_bed_h ?? 0) >= (b.in_bed_h ?? 0) ? a : b))
   return s.nights.find(n => !n.ymd && (n.date ?? '').endsWith(day.slice(5)))
 }
-export function workoutsOn(s: Summary, day: string) {
-  return (s.workouts ?? []).filter(w => w.isWorkout >= 0.5 && w.start.slice(0, 10) === day)
+export function workoutsOn(s: Summary, day: string): { start: number; end: number; label: string; source: string }[] {
+  return (s.workouts ?? []).filter(w => (w.isWorkout ?? 1) >= 0.5 && w.start.slice(0, 10) === day).map(w => {
+    const start = w.start_unix != null ? w.start_unix * 1000 : hmOnDay(day, w.start.slice(-5))
+    const end = w.end_unix != null ? w.end_unix * 1000 : start + (w.duration_min ?? w.durationMin ?? 0) * 60_000
+    return { start, end, label: w.label, source: w.source === 'manual' ? 'manual' : 'ring' }
+  })
 }
 export type ScoreKind = 'sleep' | 'readiness' | 'activity'
 export const SCORE_KINDS: ScoreKind[] = ['sleep', 'readiness', 'activity']
 export const scoreTitle = (k: ScoreKind) => t(`today.score_${k}`)
 /** The newest score of a kind on or before `day`, walking back up to a week. */
-export function latestScore(s: Summary, kind: ScoreKind, upTo: string): { day: string; score: number; provisional: boolean } | null {
+export function latestScore(s: { scores?: Scores | null }, kind: ScoreKind, upTo: string): { day: string; score: number; provisional: boolean } | null {
   const all = s.scores?.days ?? {}
   let day = upTo
   for (let i = 0; i < 7; i++) {

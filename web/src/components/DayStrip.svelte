@@ -73,7 +73,7 @@
             if (item.seriesId === 'move' && item.value) lines.push(tipRow(num(item.value[1], 1), tr('charts.met_above_rest')))
           }
           const w = workouts.find(w => x >= w.start && x <= w.end)
-          if (w) lines.push(tipRow(activityTitle(w.label), w.source === 'ring' ? tr('today.ring') : w.source))
+          if (w) lines.push(tipRow(activityTitle(w.label), w.source))
           return lines.join('')
         },
       },

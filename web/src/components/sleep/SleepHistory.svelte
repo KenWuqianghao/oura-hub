@@ -17,7 +17,9 @@
   import { fitRange, windowOf, type RangeId } from '../../lib/range'
   import { t } from '../../lib/i18n.svelte'
   import * as F from '../../lib/fmt'
+  import type { WatchSummary } from '../../lib/api'
 
+  let { watch }: { watch: WatchSummary | null } = $props()
   const HEIGHT = 250
   let range = $state<RangeId>('6M')
   const res = resource(() => loadSleepHistory(range))
@@ -94,7 +96,7 @@
       <p>{t('sleep.note_nap', { n: F.num(facts.unscheduled) })}</p>
       <p>{t('sleep.note_source')}</p>
     </div>
-    {#if nights.length}<div class="log"><SleepNightsTable {nights} {dim} /></div>{/if}
+    {#if nights.length}<div class="log"><SleepNightsTable {nights} {watch} {dim} /></div>{/if}
   {/if}
 </section>
 

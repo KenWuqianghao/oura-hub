@@ -3,8 +3,10 @@
 The hub is a small server that runs all day on a home server, a Steam Deck, a Mac,
 or a rented VPS. The iPhone app pushes two things to it after every ring sync:
 
-1. **The health summary** (`build_summary` JSON). Agents (Claude Code, Cursor, any
-   MCP client) read it over MCP, and the web app shows it.
+1. **The two summaries**: the ring summary (`build_summary` JSON, `"kind": "ring"`)
+   and the Apple Watch summary (`build_watch_summary` JSON, `"kind": "watch"`).
+   Agents (Claude Code, Cursor, any MCP client) read them over MCP, and the web app
+   shows them side by side.
 2. **The raw ring rows** (events, readings, device rows). The hub keeps them in its
    own `oura.db` with the `oura-store` schema. This is the backup: every report the
    phone or the desktop can run also runs on the hub's file.
@@ -20,7 +22,7 @@ the phone that syncs it.
 | `oura-hub` | this repo | HTTP server: `/ingest/summary`, `/ingest/events`, `/ingest/health`, `/export/events`, `/mcp`, `/health`, and the web app |
 | `oura-summary::agent` | open_health `crates/oura-summary/src/agent.rs` | Turns the full summary into the short documents the tools return |
 | `oura-store::replication` | open_oura | `export_after` / `import_batch`: raw rows in pages, idempotent |
-| iOS `HubPush.swift` | open_health `apps/ios/OuraApp` | Pushes the summary and the new rows after each sync |
+| iOS `HubPush.swift` | open_health `apps/ios/OuraApp` | Pushes the two summaries and the new rows after each sync |
 | iOS `HealthReader.swift` | open_health `apps/ios/OuraApp` | Reads Apple Health samples with anchored queries and pushes the changes |
 | `oura push` | open_health `crates/oura-cli` | Builds the summary on a Mac and pushes it |
 
@@ -48,6 +50,11 @@ Tailscale Funnel (a hosted agent needs it). Run the script again to update: it k
 the token and the data in `~/oura-hub-data` (`hub.db`, `oura.db`). To back up, copy
 that folder. To change the token, delete `~/.config/oura-hub.env` and run the script
 again.
+
+**Update order.** Deploy the hub before you install a phone build that sends `kind`.
+An older hub stores the watch summary as its only summary. Snapshots stored before
+the hub knew `kind` are kept as `ring`. They hold the old merged values until the
+phone pushes its first new ring summary.
 
 **Connect page.** It shows a QR code with `openoura://hub?url=<hub>&token=<token>`.
 Scan it with the iPhone Camera, tap **Open in Open Oura**, then **Connect**. The app
@@ -149,8 +156,9 @@ Scan the QR code on the hub's **Connect** page with the Camera, then tap **Conne
 in the app. To do it by hand: Settings → **Health hub**, turn on **Send data to my
 hub**, enter the hub URL and the token. After every sync the app sends:
 
-- the summary, with the on-device model results folded in (sleep stages, cardio
-  age, illness signs), and
+- the ring summary, with the on-device model results folded in (sleep stages,
+  cardio age, illness signs),
+- the Apple Watch summary, and
 - every ring row the hub does not have yet, in pages of 1000. The app remembers the
   last accepted ids, so a push that stops early loses nothing.
 
@@ -160,6 +168,37 @@ once. **Send All Ring Data Again** resets the ids, for a new hub.
 
 The token is kept in the Keychain and is readable after the first unlock, so a
 background sync on a locked phone can push.
+
+## The two summaries
+
+The phone builds two summaries and pushes each one to `POST /ingest/summary`:
+
+| `kind` | Built from | Holds |
+| --- | --- | --- |
+| `ring` | The ring rows and the app's journal only | Ring nights, scores, sleep debt, the formula VO2 max estimate (`fitness.source` is `formula`), activity, ring sessions and journal workouts |
+| `watch` | Apple Health only (`external.json`: Apple Watch sleep stages, heart rate, HRV SDNN, workouts, VO2 max) | Watch nights with a sleep score, scores per day (sleep, readiness), sleep debt, the measured VO2 max, Apple Health workouts |
+
+When Apple Health has no Apple Watch data, the phone sends no watch summary and the hub keeps the last one. In the MCP watch block, `age_min` is the minutes since the phone last pushed the watch summary, from its `generated_at`. On the Today table, a score cell gives its day when the score is not from the day shown. The Watch VO2 max cell gives the date of the measurement. The sleep debt cells give no day.
+
+No value in one summary comes from the other source, and the hub does not merge
+them. The hub stores each kind on its own: the dedup ("unchanged, not stored") and
+the retention (the last 500) are per kind. When a push holds content that the hub
+already stores, the hub stores no new snapshot. It moves the `received_at` and
+`generated_at` of that snapshot to the new push, so it is the latest again. A body
+without `kind`, or with a `kind` other than `ring` or `watch`, gets `400`:
+
+```json
+{ "error": "kind must be \"ring\" or \"watch\"" }
+```
+
+| Route | Returns |
+| --- | --- |
+| `GET /api/summary` | The latest ring summary: `{ "received_at", "generated_at", "body" }`, or `404` when none was pushed |
+| `GET /api/watch-summary` | The latest Apple Watch summary in the same shape, or `null` when none was pushed |
+
+The day boundary of the hub tools (`tz_offset_s` default) comes from `tz` of the
+latest ring summary. `GET /health` gives `snapshots` (all kinds) and
+`latest_received_at` and `latest_generated_at` of the latest ring summary.
 
 ## Apple Health (Apple Watch)
 
@@ -194,7 +233,7 @@ read them:
 
 | Tool | Arguments | Returns |
 | --- | --- | --- |
-| `get_watch` | none | Today and yesterday totals (best single source per day, so iPhone and Watch steps are not added together), latest heart rate, resting heart rate, HRV with a 7-day mean, VO2 max, respiratory rate, blood oxygen, wrist temperature, the last sleep with stages, workouts in the last 48 h, freshness |
+| `get_watch` | none | Today and yesterday totals (best single source per day, so iPhone and Watch steps are not added together), latest heart rate, resting heart rate, HRV with a 7-day mean, VO2 max, respiratory rate, blood oxygen, wrist temperature, the last sleep with stages, workouts in the last 48 h, freshness, and `summary` (see below) |
 | `list_health_kinds` | none | The Apple Health kinds the hub holds. For each kind: `samples`, `first_start_unix`, `newest_end_unix`, and the `agg` and `unit` that `get_health_daily` uses |
 | `get_health_daily` | `kinds` (1 to 60 names), then `days` (default 30, maximum 4000) or `start_ymd` and `end_ymd`, `tz_offset_s` | One value per day for each kind, oldest first |
 | `get_health_sleep` | `days` (default 30, maximum 4000) or `start_ymd` and `end_ymd`, `tz_offset_s` | One row per night, oldest first, from the source with the most sleep |
@@ -202,7 +241,25 @@ read them:
 | `get_health_samples` | `kind`, `days` (default 7, maximum 4000) or `start_unix` and `end_unix`, `limit` (default 500, maximum 20000) | Raw samples of one kind, newest first |
 
 `get_status_now` carries the same picture as `get_watch` under `watch`, so one call
-gives the ring and the Watch together.
+gives the ring and the Watch together. The top level of `get_status_now` is the ring
+summary only.
+
+`summary` in the watch block comes from the latest Apple Watch summary:
+
+```json
+{
+  "available": true,
+  "note": "Computed on the phone from Apple Watch data only. …",
+  "generated_at": 1794807307, "age_min": 12,
+  "scores": { "ymd": "2026-11-15", "sleep": { "score": 76, "provisional": false }, "readiness": { "score": 81, "provisional": false } },
+  "sleep_debt": { "state": "mild", "debt_min": 95, "recent_shortfall_min": 20, "need_h": 7.5, "valid": true },
+  "vo2_max": { "value": 40.6, "date": "2026-11-10", "source_name": "Ken’s Apple Watch" }
+}
+```
+
+A score, `sleep_debt` or `vo2_max` that the summary does not have is `null`. With no
+Apple Watch summary, `summary` is `{ "available": false, "note": … }`. `get_sleep`
+and `get_trends` read the ring summary only.
 
 Use `get_health_samples` for the detail inside one or two days. For a longer time,
 use the three aggregate tools. They calculate on the hub, so one call can cover all
@@ -272,7 +329,7 @@ For sleep, use `get_health_sleep`.
 ```json
 { "tz_offset_s": 7200, "start_ymd": "2026-10-08", "end_ymd": "2026-10-08",
   "nights": [
-    { "ymd": "2026-10-08", "source": "Apple Watch", "start_unix": 1791407670, "end_unix": 1791439089,
+    { "ymd": "2026-10-08", "source": "Apple Watch", "watch": true, "start_unix": 1791407670, "end_unix": 1791439089,
       "in_bed_min": 523.6, "asleep_min": 514.6, "deep_min": 50.2, "core_min": 344.4, "rem_min": 120.0,
       "unspecified_min": 0.0, "awake_min": 9.0 }
   ] }
@@ -287,6 +344,10 @@ When more than one source has rows for a night, the source with the most time
 asleep gives the row. A source with only `in_bed` rows gives the row when no source
 has time asleep, and then `asleep_min` is null.
 
+- `watch` is true when that source is an Apple Watch. HealthKit gives a sleep row
+  no device, so the hub calls a source a watch when its `heart_rate` rows in the
+  window have the device `Watch`. Only a watch night can take a sleep score from
+  the Apple Watch summary.
 - `start_unix` and `end_unix` are the first start and the last end of the rows of
   that source.
 - `in_bed_min` is the total of the `in_bed` rows. When the source has no `in_bed`
@@ -323,14 +384,21 @@ export OURA_HUB_TOKEN=<token>
 oura push --to https://hub.example.com --tz-offset 8
 ```
 
-The command builds the same summary the dashboard shows, then posts it. A summary
-that did not change is not stored twice. Run it after each `oura sync`, or on a
-timer. The hub keeps the last 500 snapshots.
+The command builds the ring summary and posts it. If `external.json` is next to
+`oura.db`, it then builds the watch summary and posts it. Without that file the Mac
+has no watch data, so it sends no watch summary. A summary that did not change is
+not stored twice, and the stored one takes the times of the new push. Run the command
+after each `oura sync`, or on a timer. The hub keeps the last 500 snapshots of each
+kind.
 
-The reply shows what the hub stored:
+The command prints the hub's reply for each kind. `watch` is not there when no watch
+summary was sent. `snapshots` counts the snapshots of that kind:
 
 ```json
-{ "stored": true, "generated_at": 1758500000.0, "received_at": 1758500012, "snapshots": 12 }
+{
+  "ring": { "kind": "ring", "stored": true, "sha256": "…", "received_at": 1758500012, "generated_at": 1758500000.0, "snapshots": 12 },
+  "watch": { "kind": "watch", "stored": false, "sha256": "…", "received_at": 1758500013, "generated_at": 1758500000.0, "snapshots": 4 }
+}
 ```
 
 ## The ring replica
@@ -356,9 +424,9 @@ The top bar has eight sections. Two more pages are behind the icons on the right
 
 | Page | Route | Shows |
 | --- | --- | --- |
-| **Today** | `#/` | One day: last night, the status of the ring and the Watch, the activity totals, the last 14, 30, or 90 nights, the scores, and the Apple Health totals of the day |
-| **Sleep** | `#/sleep` | Each ring night: the hypnogram, then heart rate, HRV, skin temperature, blood oxygen, and movement on the same hours |
-| | `#/sleep/history` | The same page, at the sleep history from Apple Health: time asleep by stage, bedtime and wake time, and each night in a table |
+| **Today** | `#/` | One day: the scores, sleep debt and VO2 max of the ring and of the Watch in one table, last night, the status of the ring and the Watch, the activity totals, the last 14, 30, or 90 nights, and the Apple Health totals of the day |
+| **Sleep** | `#/sleep` | Each ring night with the ring sleep score: the hypnogram, then heart rate, HRV, skin temperature, blood oxygen, and movement on the same hours |
+| | `#/sleep/history` | The same page, at the sleep history from Apple Health: time asleep by stage, bedtime and wake time, and each night in a table. An Apple Watch night has the sleep score of the Apple Watch summary |
 | **Activity** | `#/activity` | Steps, energy, exercise, stand hours, distance, the workouts by type, the workout log, and one year of days |
 | | `#/activity/workouts` | The same page, at the workout log. Trends links here for the `workout` kind |
 | **Heart** | `#/heart` | The heart rate range per day, resting heart rate and HRV, the ring against the Watch, fitness, breathing, and the heart events |
@@ -381,8 +449,9 @@ the choice. On the first visit the page follows the language of the browser.
 
 **Light and dark.** The page follows the system setting.
 
-The UI reads `GET /api/summary` (the latest snapshot) and `POST /api/tool/<name>`
-(the MCP tools) with the bearer token. It is built from `web/` and embedded in the
+The UI reads `GET /api/summary` (the latest ring summary), `GET /api/watch-summary`
+(the latest Apple Watch summary), and `POST /api/tool/<name>` (the MCP tools) with
+the bearer token. It is built from `web/` and embedded in the
 binary.
 
 ## The built-in agent (Ask)
