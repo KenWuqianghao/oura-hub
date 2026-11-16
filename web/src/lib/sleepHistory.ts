@@ -1,6 +1,6 @@
 // The long-term sleep history from Apple Health, pure: which nights count, the
 // facts of a period, and the marks of the two charts.
-import type { DayPoint, SleepNight } from './api'
+import type { DayPoint, SleepNight, WatchSummary } from './api'
 import { bucketize, type BucketSize } from './range'
 import { dayStartMs } from './fmt'
 
@@ -28,6 +28,14 @@ export function classify(nights: SleepNight[]): HistoryNight[] {
     const overlapping = Math.max(n.asleep_min ?? 0, n.in_bed_min) > MAX_NIGHT_MIN
     return { ...n, overlapping, schedule: overlapping ? null : scheduleOf(n) }
   })
+}
+
+/** The watch summary scores Apple Watch nights only, so a night of another source has no score. */
+const WATCH_SOURCE = /apple\s*watch/i
+export function watchSleepScore(watch: WatchSummary | null, n: SleepNight): number | null {
+  if (!watch || !WATCH_SOURCE.test(n.source)) return null
+  const score = watch.scores?.days?.[n.ymd]?.sleep?.score
+  return typeof score === 'number' ? score : null
 }
 
 const mean = (v: number[]) => v.length ? v.reduce((a, b) => a + b, 0) / v.length : null
