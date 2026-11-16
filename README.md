@@ -18,7 +18,8 @@ your iPhone. Full guide: [open-oura.vercel.app/setup](https://open-oura.vercel.a
 ## What it serves
 
 - `POST /ingest/summary`, `POST /ingest/events`, `POST /ingest/health`: what the phone
-  or `oura push` sends (bearer token).
+  or `oura push` sends (bearer token). A summary body has `"kind": "ring"` or
+  `"kind": "watch"`; the hub stores the two apart.
 - `POST /mcp/<token>`: a stateless Streamable HTTP MCP server with the tools
   `get_status_now`, `get_sleep`, `get_trends`, `get_watch`, `list_health_kinds`, `get_health_samples`,
   `get_health_daily`, `get_health_sleep`, `get_workouts`, `get_activity`.
@@ -26,7 +27,8 @@ your iPhone. Full guide: [open-oura.vercel.app/setup](https://open-oura.vercel.a
 - `GET /health`: liveness; details with the token.
 - `GET /`: the web app, in English and Chinese. Eight sections: Today, Sleep,
   Activity, Heart, Nutrition, Body, Trends, Ask. Two more pages: Data and Connect. It
-  signs in with the same token and reads `/api/summary` and `/api/tool/<name>`.
+  signs in with the same token and reads `/api/summary` (ring), `/api/watch-summary`
+  (Apple Watch), and `/api/tool/<name>`.
   **Connect** shows a QR code that links the iPhone app in one scan. The pages and
   their routes: [docs/health-hub.md](docs/health-hub.md#the-web-ui).
 - `POST /api/agent/ask`: the built-in agent. Runs your own Claude Code, Codex, or
