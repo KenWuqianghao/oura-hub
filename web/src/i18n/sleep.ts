@@ -21,7 +21,7 @@ export const en = {
   note_overlap: 'The averages and the charts leave out a night with more than 16 h asleep or in bed, because its source wrote records that overlap. Nights left out in this period: {n} (†).',
   note_nap: 'Apple Health merges a nap into the night before it, and the wake time moves with the nap. The bedtime chart and the bedtime averages leave out a night if its first and last records are more than 4 h further apart than its time in bed. Nights left out in this period: {n} (‡).',
   note_source: 'Each night comes from the source with the most sleep. Clock times use the time zone of this browser. A night in a different time zone shows shifted by the difference.',
-  woke_on: 'Wake date', source: 'Source', score: 'Sleep score',
+  woke_on: 'Wake date', source: 'Source', score: 'Watch score',
 } as const
 export const zh = {
   sub: '戒指记录了 {n} 晚。每晚先是设备端模型给出的睡眠阶段，随后是同一时间轴上的心率、心率变异性、皮肤温度、血氧和活动量。把指针移到图上，可查看任意一分钟的数值。',
@@ -45,5 +45,5 @@ export const zh = {
   note_overlap: '睡着或卧床超过 16 小时的夜晚不计入平均值和图表，因为来源写入了相互重叠的记录。这段时间未计入的有 {n} 晚（†）。',
   note_nap: 'Apple Health 会把小睡并入前一晚，起床时间也随之后移。如果一晚首末两条记录的间隔比卧床时长多出 4 小时以上，就不计入就寝时间图和就寝时间的平均值。这段时间未计入的有 {n} 晚（‡）。',
   note_source: '每晚取睡眠时长最长的来源。时刻按此浏览器的时区显示，在其他时区度过的夜晚会按时差偏移。',
-  woke_on: '起床日期', source: '来源', score: '睡眠分数',
+  woke_on: '起床日期', source: '来源', score: '手表分数',
 } satisfies Record<keyof typeof en, string>
