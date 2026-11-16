@@ -178,12 +178,14 @@ The phone builds two summaries and pushes each one to `POST /ingest/summary`:
 | `ring` | The ring rows and the app's journal only | Ring nights, scores, sleep debt, the formula VO2 max estimate (`fitness.source` is `formula`), activity, ring sessions and journal workouts |
 | `watch` | Apple Health only (`external.json`: Apple Watch sleep stages, heart rate, HRV SDNN, workouts, VO2 max) | Watch nights with a sleep score, scores per day (sleep, readiness), sleep debt, the measured VO2 max, Apple Health workouts |
 
-When Apple Health has no Apple Watch data, the phone sends no watch summary and the hub keeps the last one. The MCP watch block gives its age in `age_min`, and the Today table shows the day of each value.
+When Apple Health has no Apple Watch data, the phone sends no watch summary and the hub keeps the last one. In the MCP watch block, `age_min` is the minutes since the phone last pushed the watch summary, from its `generated_at`. On the Today table, a score cell gives its day when the score is not from the day shown. The Watch VO2 max cell gives the date of the measurement. The sleep debt cells give no day.
 
 No value in one summary comes from the other source, and the hub does not merge
 them. The hub stores each kind on its own: the dedup ("unchanged, not stored") and
-the retention (the last 500) are per kind. A body without `kind`, or with a `kind`
-other than `ring` or `watch`, gets `400`:
+the retention (the last 500) are per kind. When a push holds content that the hub
+already stores, the hub stores no new snapshot. It moves the `received_at` and
+`generated_at` of that snapshot to the new push, so it is the latest again. A body
+without `kind`, or with a `kind` other than `ring` or `watch`, gets `400`:
 
 ```json
 { "error": "kind must be \"ring\" or \"watch\"" }
@@ -385,8 +387,9 @@ oura push --to https://hub.example.com --tz-offset 8
 The command builds the ring summary and posts it. If `external.json` is next to
 `oura.db`, it then builds the watch summary and posts it. Without that file the Mac
 has no watch data, so it sends no watch summary. A summary that did not change is
-not stored twice. Run the command after each `oura sync`, or on a timer. The hub
-keeps the last 500 snapshots of each kind.
+not stored twice, and the stored one takes the times of the new push. Run the command
+after each `oura sync`, or on a timer. The hub keeps the last 500 snapshots of each
+kind.
 
 The command prints the hub's reply for each kind. `watch` is not there when no watch
 summary was sent. `snapshots` counts the snapshots of that kind:
