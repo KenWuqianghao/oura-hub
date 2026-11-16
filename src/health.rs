@@ -387,8 +387,8 @@ pub fn watch_summary_status(summary: Option<&Value>, now_unix: i64) -> Value {
         "generated_at": generated_at,
         "age_min": generated_at.map(|g| ((now_unix - g).max(0) as f64 / 60.0).round()),
         "scores": { "ymd": latest, "sleep": score("sleep"), "readiness": score("readiness") },
-        "sleep_debt": match sd["days"].as_array().and_then(|d| d.last()) {
-            Some(last) => json!({ "ymd": last["date"], "state": sd["state"], "debt_min": sd["debt_min"], "recent_shortfall_min": sd["recent_shortfall_min"], "need_h": sd["need_h"], "valid": sd["valid"] }),
+        "sleep_debt": match sd["days"].as_array().and_then(|d| d.last()).and_then(|d| d["date"].as_str()) {
+            Some(ymd) => json!({ "ymd": ymd, "state": sd["state"], "debt_min": sd["debt_min"], "recent_shortfall_min": sd["recent_shortfall_min"], "need_h": sd["need_h"], "valid": sd["valid"] }),
             None => Value::Null,
         },
         "vo2_max": if fitness["vo2max"].is_number() {
