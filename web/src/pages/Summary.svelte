@@ -3,13 +3,13 @@
   import DayStrip from '../components/DayStrip.svelte'
   import NightChart from '../components/NightChart.svelte'
   import Small from '../components/Small.svelte'
-  import Meter from '../components/Meter.svelte'
   import Section from '../components/Section.svelte'
   import KV from '../components/KV.svelte'
   import Seg from '../components/Seg.svelte'
   import Num from '../components/Num.svelte'
   import Empty from '../components/Empty.svelte'
   import AppleHealthDay from '../components/today/AppleHealthDay.svelte'
+  import SourceTable from '../components/today/SourceTable.svelte'
   import { hub, selectDay } from '../lib/store.svelte'
   import { t, i18n, has } from '../lib/i18n.svelte'
   import { zhRingText } from '../i18n/today'
@@ -32,11 +32,7 @@
   const act = $derived(s.activity_daily?.[day])
   const profile = $derived(s.activity_profile?.[day] ?? [])
   const prevProfile = $derived(s.activity_profile?.[F.addDays(day, -1)] ?? [])
-  const scores = $derived(F.SCORE_KINDS.map(k => {
-    const hit = F.latestScore(s, k, day)
-    const last7 = Array.from({ length: 7 }, (_, i) => { const d = F.addDays(day, i - 6); const sc = s.scores?.days?.[d]?.[k]; return sc && typeof sc.score === 'number' ? sc.score : null })
-    return { kind: k, hit, last7 }
-  }))
+  const scores = $derived(F.SCORE_KINDS.map(k => ({ kind: k, hit: F.latestScore(s, k, day) })))
   const nightsByWake = $derived(oneNightPerWakeDay(s.nights))
   let range = $state(30)
   const series = (pick: (n: Night) => number | null | undefined) => nightsByWake.filter(({ night }) => pick(night) != null).slice(-range).map(({ ymd, night }) => ({ ymd, value: pick(night) as number }))
@@ -50,7 +46,8 @@
   const debt = $derived(s.sleep_debt)
   const ill = $derived(s.illness)
   const dayScores = $derived(s.scores?.days?.[day] ?? {})
-  const workouts = $derived([...(hub.dayData?.workouts ?? []), ...F.workoutsOn(s, day).map(wk => ({ start: F.hmOnDay(wk.start.slice(0, 10), wk.start.slice(-5)), end: F.hmOnDay(wk.start.slice(0, 10), wk.start.slice(-5)) + wk.durationMin * 60_000, label: wk.label, source: 'ring' }))])
+  // Apple Health workouts carry their source name; the ring summary's own are the ring's or typed in the app
+  const workouts = $derived([...(hub.dayData?.workouts ?? []), ...F.workoutsOn(s, day).map(wk => ({ ...wk, source: t(wk.source === 'manual' ? 'today.source_manual' : 'today.ring') }))])
   const ringAgo = $derived(s.device?.fresh_hours != null && hub.receivedAt ? F.ago(hub.receivedAt - s.device.fresh_hours * 3600) : '—')
   const watchAgo = $derived(w?.freshness ? F.ago(w.freshness.newest_sample_unix) : '—')
   const hrDay = $derived(hub.dayData?.day === day ? hub.dayData.hr : [])
@@ -66,9 +63,6 @@
   })
   const ringText = (text: string | undefined) => text ? (i18n.locale === 'zh' ? zhRingText[text] ?? text : text) : ''
   const contributorName = (c: Contributor) => { const key = `today.c_${c.key}`; return has(key) ? t(key) : c.name }
-  const scoreNote = (sc: typeof scores[number]) => !sc.hit ? t(sc.kind === 'activity' ? 'today.tracking_today' : 'today.after_night')
-    : sc.hit.day !== day ? t('today.from_day', { day: i18n.locale === 'en' ? F.dayLabel(sc.hit.day).toLowerCase() : F.dayLabel(sc.hit.day) })
-    : dayScores[sc.kind]?.contributors ? t('today.contributors_n', { n: dayScores[sc.kind].contributors!.length }) : ''
   const basis = $derived(s.scores?.basis ? (i18n.locale === 'zh' ? t('today.basis') : s.scores.basis.replace(/ — see .*$/, '')) : '')
 </script>
 
@@ -83,11 +77,7 @@
           {#if !isToday}<button class="btn" onclick={() => selectDay(F.todayYmd())}>{t('common.today')}</button>{/if}
         </div>
         <p class="lede" class:sub={!lede}>{lede ?? t('today.no_night')}</p>
-        <div class="meters">
-          {#each scores as sc}
-            <Meter name={F.scoreTitle(sc.kind)} score={sc.hit?.score ?? null} days={sc.last7} provisional={!!sc.hit?.provisional} note={scoreNote(sc)} />
-          {/each}
-        </div>
+        <SourceTable ring={s} watch={hub.watchSummary} {day} />
       </div>
       <div>
         <div class="eyebrow">{t('today.status')}</div>
@@ -96,7 +86,6 @@
           [t('today.watch_newest'), watchAgo],
           [t('today.summary_built'), `${hub.receivedAt ? F.ago(hub.receivedAt) : '—'}${s.pushed_by ? ` · ${s.pushed_by.client} ${s.pushed_by.version}` : ''}`],
         ]}>
-          <dt class="k">{t('today.sleep_debt')}</dt><dd class="v">{debt?.valid ? `${F.minutesText(debt.debt_min)} · ` : ''}<span class="pill {F.debtTone(debt?.state)}">{debt?.valid ? F.debtLabel(debt.state) : t('today.debt_days', { n: debt?.valid_days ?? 0 })}</span></dd>
           <dt class="k">{t('today.illness')}</dt><dd class="v"><span class="pill {ill?.available ? F.illnessTone(ill.traffic_light) : 'neutral'}">{ill?.available ? F.illnessLabel(ill.traffic_light) : t('today.needs_nights')}</span></dd>
           {#if s.cardio?.vascular_age != null}<dt class="k">{t('today.vascular_age')}</dt><dd class="v">{t('today.age_yr', { n: F.num(s.cardio.vascular_age, 1) })}{s.cardio.chronological_age != null ? t('today.you_are', { n: s.cardio.chronological_age }) : ''}</dd>{/if}
         </KV>
@@ -178,7 +167,6 @@
           [t('common.heart_rate'), w?.heart_rate_latest?.value != null ? `${Math.round(w.heart_rate_latest.value)} bpm · ${F.timeHM(w.heart_rate_latest.at_unix ?? 0)}` : null],
           [t('common.resting_heart_rate'), w?.resting_heart_rate?.value != null ? `${Math.round(w.resting_heart_rate.value)} bpm` : null],
           [t('today.hrv_sdnn'), w?.hrv_sdnn?.latest?.value != null ? `${Math.round(w.hrv_sdnn.latest.value)} ms${w.hrv_sdnn.mean_7d_ms != null ? ` · ${t('today.mean_7d_n', { n: w.hrv_sdnn.mean_7d_ms })}` : ''}` : null],
-          [t('today.vo2_max'), w?.vo2_max?.value != null ? `${w.vo2_max.value} ml/kg/min` : null],
           [t('today.respiratory_rate'), w?.respiratory_rate?.value != null ? `${w.respiratory_rate.value} /min` : null],
           [t('common.blood_oxygen'), w?.oxygen_saturation?.value != null ? `${Math.round(w.oxygen_saturation.value * 100)} %` : null],
           [t('today.wrist_temp'), w?.wrist_temperature?.value != null ? `${F.num(w.wrist_temperature.value, 2)} °C` : null],
@@ -191,7 +179,7 @@
   <div class="section">
     <div class="cols cols-2-1">
       <div>
-        <div class="eyebrow">{t('today.sleep_debt')} <span class="aside">{t('today.debt_aside', { days: debt?.window_days ?? 14, h: debt?.need_h ?? 8 })}</span></div>
+        <div class="eyebrow">{t('today.sleep_debt_ring')} <span class="aside">{t('today.debt_aside', { days: debt?.window_days ?? 14, h: debt?.need_h ?? 8 })}</span></div>
         {#if debt?.valid}
           <p style="margin: 0 0 10px"><span class="hero tone-{F.debtTone(debt.state)}">{F.minutesText(debt.debt_min)}</span> <span class="sub">{F.debtCopy(debt.state)}</span></p>
         {:else}
@@ -213,7 +201,6 @@
           [t('today.last_sync'), s.device?.synced ? `${F.monthDay(s.device.synced)} ${s.device.synced_hm ?? ''}` : null],
           [t('today.days_of_data'), s.device?.days_of_data != null ? Math.round(s.device.days_of_data) : null],
           [t('today.nights'), s.device?.nights ?? s.nights.length],
-          s.fitness?.vo2max != null && [t('today.vo2_estimate'), F.num(s.fitness.vo2max)],
         ]} />
       </div>
     </div>
@@ -222,6 +209,4 @@
 
 <style>
   .day-nav { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: -8px; }
-  .meters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 32px; margin-top: 18px; }
-  @media (max-width: 560px) { .meters { grid-template-columns: minmax(0, 1fr); } }
 </style>

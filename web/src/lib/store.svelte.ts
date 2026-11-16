@@ -1,5 +1,5 @@
-// Page state: the token, the latest summary, the Apple Health picture, load status.
-import { api, getToken, setToken, type Summary, type Watch, type HealthInfo, type HealthSample, ApiError } from './api'
+// Page state: the token, the latest ring and watch summaries, the Apple Health picture, load status.
+import { api, getToken, setToken, type Summary, type Watch, type WatchSummary, type HealthInfo, type HealthSample, ApiError } from './api'
 import { dayStartMs, todayYmd } from './fmt'
 import { t } from './i18n.svelte'
 import { refreshHealth } from './health.svelte'
@@ -13,6 +13,8 @@ export const hub = $state({
   summary: null as Summary | null,
   receivedAt: 0,
   watch: null as Watch | null,
+  /** The latest watch summary: Apple Watch scores, sleep debt, VO2 max. */
+  watchSummary: null as WatchSummary | null,
   info: null as HealthInfo | null,
   day: '' as string,
   dayData: null as null | { day: string; hr: [number, number][]; workouts: { start: number; end: number; label: string; source: string }[] },
@@ -41,6 +43,7 @@ export function logout() {
   hub.authed = false
   hub.summary = null
   hub.watch = null
+  hub.watchSummary = null
 }
 
 /** The install script prints `<hub>/#token=<token>`: take the token, open Connect,
@@ -66,8 +69,9 @@ export async function load() {
   hub.error = ''
   if (hub.info) refreshHealth()
   try {
-    const [summary, watch, info] = await Promise.all([
+    const [summary, watchSummary, watch, info] = await Promise.all([
       api.summary().catch(e => { if (e instanceof ApiError && e.status === 404) return null; throw e }),
+      api.watchSummary(),
       api.tool<Watch>('get_watch').catch(() => null),
       api.health().catch(() => null),
     ])
@@ -75,6 +79,7 @@ export async function load() {
     if (!hub.day) { hub.day = todayYmd(); selectDay(hub.day) } else { selectDay(hub.day) }
     hub.receivedAt = summary?.received_at ?? 0
     hub.watch = watch
+    hub.watchSummary = watchSummary?.body ?? null
     hub.info = info
   } catch (e: any) {
     hub.error = e.message
