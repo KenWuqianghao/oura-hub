@@ -387,9 +387,10 @@ pub fn watch_summary_status(summary: Option<&Value>, now_unix: i64) -> Value {
         "generated_at": generated_at,
         "age_min": generated_at.map(|g| ((now_unix - g).max(0) as f64 / 60.0).round()),
         "scores": { "ymd": latest, "sleep": score("sleep"), "readiness": score("readiness") },
-        "sleep_debt": if sd.is_object() {
-            json!({ "ymd": sd["days"].as_array().and_then(|d| d.last()).map_or(Value::Null, |d| d["date"].clone()), "state": sd["state"], "debt_min": sd["debt_min"], "recent_shortfall_min": sd["recent_shortfall_min"], "need_h": sd["need_h"], "valid": sd["valid"] })
-        } else { Value::Null },
+        "sleep_debt": match sd["days"].as_array().and_then(|d| d.last()) {
+            Some(last) => json!({ "ymd": last["date"], "state": sd["state"], "debt_min": sd["debt_min"], "recent_shortfall_min": sd["recent_shortfall_min"], "need_h": sd["need_h"], "valid": sd["valid"] }),
+            None => Value::Null,
+        },
         "vo2_max": if fitness["vo2max"].is_number() {
             json!({ "value": fitness["vo2max"], "date": fitness["date"], "source_name": fitness["source_name"] })
         } else { Value::Null },
@@ -399,6 +400,20 @@ pub fn watch_summary_status(summary: Option<&Value>, now_unix: i64) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_empty_watch_summary_gives_no_watch_values() {
+        let empty = json!({
+            "kind": "watch", "generated_at": 1_700_000_000, "tz": 1, "nights": [],
+            "scores": { "latest": null, "days": {} },
+            "sleep_debt": { "debt_min": 0, "recent_shortfall_min": 0, "valid": false, "need_h": 8.0,
+                            "valid_days": 0, "window_days": 14, "state": "none", "days": [] },
+            "fitness": null, "workouts": [],
+        });
+        let w = watch_summary_status(Some(&empty), 1_700_000_600);
+        assert_eq!(w["sleep_debt"], Value::Null, "no days in the window is no sleep debt, not \"none\"");
+        assert_eq!((&w["scores"]["sleep"], &w["vo2_max"]), (&Value::Null, &Value::Null));
+    }
 
     fn s(uuid: &str, kind: &str, start: f64, end: f64, value: f64, bundle: &str) -> HealthSample {
         HealthSample {

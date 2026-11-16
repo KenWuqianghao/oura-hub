@@ -257,7 +257,8 @@ summary only.
 }
 ```
 
-A score, `sleep_debt` or `vo2_max` that the summary does not have is `null`. With no
+A score, `sleep_debt` or `vo2_max` that the summary does not have is `null`. A
+`sleep_debt` with no days in its window is `null`. With no
 Apple Watch summary, `summary` is `{ "available": false, "note": … }`. `get_sleep`
 and `get_trends` read the ring summary only.
 
@@ -384,9 +385,9 @@ export OURA_HUB_TOKEN=<token>
 oura push --to https://hub.example.com --tz-offset 8
 ```
 
-The command builds the ring summary and the watch summary and posts both. The watch
-summary comes from `external.json` next to `oura.db`. Without that file the watch
-summary is empty. A summary that did not change is
+The command builds the ring summary and posts it. If `external.json` is next to
+`oura.db`, it then builds the watch summary and posts it. Without that file it sends
+no watch summary, so the phone's watch summary stays. A summary that did not change is
 not stored twice, and the stored one takes the times of the new push. Run the command
 after each `oura sync`, or on a timer. The hub keeps the last 500 snapshots of each
 kind.
